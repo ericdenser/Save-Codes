@@ -133,5 +133,3 @@ get_idf
 
 ## 📚 References
 
-* ESP-IDF Documentation
-* [https://github.com/espressif/esp-idf](https://github.com/espressif/esp-idf)
