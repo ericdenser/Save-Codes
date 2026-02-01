@@ -1,0 +1,70 @@
+menu "Wifi Manager Configuration"
+
+    config WIFI_SSID
+        string "Main SSID"
+        default "Myssid"
+
+    config WIFI_PASSWORD
+        string "Main Password"
+        default "Mypassword"
+
+    config WIFI_MAX_RETRIES
+        int "Max Retries"
+        default 5
+
+    choice WIFI_FAILURE_STRATEGY
+        prompt "Recovery Strategy on Failure"
+        default WIFI_RECOVERY_RESET
+        help
+            Define o comportamento quando o número máximo de tentativas é atingido.
+
+        config WIFI_RECOVERY_RESET
+            bool "System Reset"
+            help
+                Reinicia o ESP32 automaticamente (esp_restart).
+
+        config WIFI_RECOVERY_SWAP
+            bool "Swap SSID (Try Backup Network)"
+            help
+                Tenta conectar em uma rede secundária definida abaixo.
+                Se a rede secundária também falhar, o sistema reinicia.
+
+        config WIFI_RECOVERY_NONE
+            bool "Keep Idle (Manual Handling)"
+            help
+                Apenas para o driver e define o estado como FAILED.
+                A aplicação deve decidir o que fazer.
+    endchoice
+
+    # CREDENCIAIS DE BACKUP (Só aparecem se SWAP for escolhido)
+    config WIFI_BACKUP_SSID
+        string "Backup SSID"
+        depends on WIFI_RECOVERY_SWAP
+        default "Backup_Network"
+
+    config WIFI_BACKUP_PASSWORD
+        string "Backup Password"
+        depends on WIFI_RECOVERY_SWAP
+        default ""
+
+endmenu
+
+menu "Ota Manager Configuration"
+
+    config FIRMWARE_UPDATE_URL
+        string "OTA Update URL"
+        default "http://192.168.15.52:8080/ciclo/firmware/check"
+
+endmenu
+
+
+menu "Device Auth"
+
+    config DEVICE_ID
+        string "Device identification"
+        default ""
+    config TOKEN_ACESS
+        string "Token to authorization"
+        default ""
+
+endmenu

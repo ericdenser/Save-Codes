@@ -1,0 +1,27 @@
+idf_component_register(
+    SRCS 
+        "main.cpp" 
+        "src/WifiManager.cpp" 
+        "src/HttpService.cpp" 
+        "src/OtaManager.cpp" 
+        "src/WatchdogManager.cpp" 
+        "src/BatteryManager.cpp" 
+        "src/BleManager.cpp"
+    INCLUDE_DIRS 
+        "." 
+        "src"
+    REQUIRES 
+        driver 
+        esp_adc 
+        nvs_flash 
+        esp_wifi 
+        esp_event 
+        esp_http_client 
+        esp_timer 
+        mbedtls 
+        bt 
+        esp_https_ota 
+        app_update 
+        json 
+        esp_partition
+)

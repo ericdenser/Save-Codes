@@ -1,0 +1,86 @@
+@startuml Ciclo
+title Ciclo de Vida do ESP32
+
+start
+
+:Acordar do Deep Sleep;
+
+if (Qual a causa do despertar?) then (Timer (1 min))
+  :Modo: **Ciclo Padrão**;
+else (Botão)
+  :Modo: **Configuração**;
+endif
+
+:Inicializar NVS;
+:Inicializar Watchdog;
+if (Qual motivo do ultimo reset?) then (Crash inesperado)
+ :Incrementa crash count;
+else (Reset manual (esperado))
+endif
+:Verificar Crash Count;
+
+if (Crash Count >= 3?) then (Sim)
+  :Rollback para versão anterior;
+  stop
+endif
+
+if (Modo Configuração?) then (Sim)
+  partition "Modo **Configuração**" {
+    :Iniciar BLE Server;
+    :Aguardar Conexão ou Timeout (5 min);
+    if (Recebeu JSON via BLE?) then (Sim)
+      :Salvar SSID/Senha na NVS;
+      :Notificar client;
+    endif
+    :Parar BLE;
+  }
+else (Não)
+  partition "Modo **Ciclo Padrão**" {
+
+    :Ler NVS (SSID/Senha);
+
+    if (Credenciais existem?) then (Sim)
+
+      :Conectar WiFi;
+
+      while (Conectado?) is (Não)
+        :Tentar Recuperação (Swap/Reset);
+
+        if (Recuperação funcionou?) then (Sim)
+          ' volta automaticamente para o teste "Conectado?"
+        else (Não)
+          :Lógica microSD;
+          detach
+        endif
+      endwhile
+
+        :Verificar OTA;
+        :Ler Sensores;
+
+        partition "Health Check" {
+          :Verificar Tensão Bateria;
+          :Verificar WiFi;
+          if (Firmware Novo?) then (Sim)
+            :Aguardar 30s (Estabilização);
+            :Marcar Firmware Válido;
+          endif
+        }
+
+        if (Saúde OK?) then (Sim)
+          :Enviar JSON (POST);
+        endif
+
+    else (Não)
+      :Forçar Modo **Configuração**;
+      detach
+    endif
+  }
+endif
+
+:Parar WiFi / Limpar Recursos;
+:Configurar Despertador (Timer 1 min);
+:Configurar Despertador (Botão GPIO 0);
+:Entrar em Deep Sleep;
+
+stop
+@enduml
