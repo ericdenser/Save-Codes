@@ -226,44 +226,6 @@ static void setup_crucial() {
     }
 }
 
-// ======================= NORMAL CYCLE =======================
-static void standard_cycle(int64_t boot_time) {
-
-    // Check credentials saved in flash
-    char ssid_buffer[33] = {0};
-    char pass_buffer[64] = {0};
-    get_nvs_string("wifi_ssid", ssid_buffer, sizeof(ssid_buffer));
-    get_nvs_string("wifi_pass", pass_buffer, sizeof(pass_buffer));
-
-    // No wifi found, force config mode
-    if (strlen(ssid_buffer) == 0) {
-        ESP_LOGE(TAG, "Sem WiFi configurado! Forçando modo de configuração.");
-        setup_configuration();
-        return; // After leaving config mode, go to deep sleep and try again
-    }
-
-    currentProcess = "WIFI";
-    // Wifi Init
-    WifiConfig cfg;
-    cfg.ssid = ssid_buffer;
-    cfg.password = pass_buffer;
-    cfg.max_retries = MAX_WIFI_RETRIES;
-    WifiManager::init(cfg);
-    
-    if(WifiManager::waitForConnection(WatchdogManager::reset)) {
-        if(WifiManager::hasFailed()) {
-            WifiManager::recover();
-        }
-    }
-    if (WifiManager::isConnected()) check_ota();
-    readSensors();
-    if (checkSystemHealth(boot_time)) {
-        sendData();
-    } else {
-        ESP_LOGE(TAG, "Health check failed. Skipping data post.");
-    }
-}
-
 static bool check_ota() {
     currentProcess = "OTA_CHECK";
     ESP_LOGI(TAG, "Checking for updates on OtaManager...");
@@ -286,9 +248,10 @@ static bool check_ota() {
 }
 
 static void readSensors() {
+    ESP_LOGI(TAG, "ENTRANDO EM SENSORES");
     currentProcess = "READ_SENSORS";
-    float voltage_mv = BatteryManager::readBattery();
-    current_voltage = voltage_mv;
+    //float voltage_mv = BatteryManager::readBattery();
+    current_voltage = 3500; //voltage_mv
 
 }
 
@@ -308,7 +271,7 @@ static void sendData() {
 
 
         snprintf(json_payload, sizeof(json_payload),
-                "{\"device\":\"%s\",\"mac\":\"%s\",\"version\":%d,\"ssid\":\"%s\",\"ip\":\"%s\",\"last_reset_reason\":%d,\"crash_count\":%d,\"voltage\":%.2f,\"boot\":%d,\"rssi\":%d}",
+                "{\"device\":\"%s\",\"mac\":\"%s\",\"version\":%d,\"ssid\":\"%s\",\"ip\":\"%s\",\"last_reset_reason\":%d,\"crash_count\":%d,\"voltage\":%.2d,\"boot\":%d,\"rssi\":%d}",
                 DEVICE_ID, 
                 WifiManager::getMacAddress().c_str(), 
                 FIRMWARE_VERSION,
@@ -348,7 +311,7 @@ static bool wait_for_condition(std::function<bool()> condition, uint32_t timeout
 }
 
 static bool checkSystemHealth(int64_t boot_time) {
-
+    ESP_LOGI(TAG, "ENTRANDO CHECKING HEALTH");
     bool wifi_valid = false;
     bool battery_valid = true;
     bool valid_firmware = false;
@@ -365,6 +328,7 @@ static bool checkSystemHealth(int64_t boot_time) {
     currentProcess = "CHECK_WIFI";
     // ============ Validate Wifi =================
     if (WifiManager::isConnected()) {
+        ESP_LOGI(TAG, "Wifi Validado");
         wifi_valid = true;
     } else {
         if (!wait_for_condition([](){ return WifiManager::isConnected();}, WIFI_HEALTH_TIMEOUT_MS, "WiFi Check")) {
@@ -394,6 +358,7 @@ static bool checkSystemHealth(int64_t boot_time) {
             int64_t now = esp_timer_get_time();
             int64_t time_since_boot = now - boot_time;
             int64_t time_remaining = TIME_TO_VALIDATE_OTA - time_since_boot;
+            // During this timer, if any crash happens, we save and treat it next boot 
             if (time_remaining > 0) {
                 ESP_LOGI(TAG, "Waiting for firmware estabilization (%lld seconds restantes)...", time_remaining / 1000000.0);
                 
@@ -406,17 +371,59 @@ static bool checkSystemHealth(int64_t boot_time) {
 
             // If it gets here, the firmware is stable
             OtaManager::set_valid_version();
+            valid_firmware = true;
 
             // We got through the "danger zone", we can zero the crash counter and validate all components
             nvs_set_i8(my_nvs_handle, "crash_count", 0);
             nvs_commit(my_nvs_handle);
         } else {
             ESP_LOGW(TAG, "Firmware was already verified, skipped waiting loop.");
+            valid_firmware = true;
         }
-        valid_firmware = true;
     }
     return (wifi_valid && valid_firmware);
 } 
+
+// ======================= NORMAL CYCLE =======================
+static void standard_cycle(int64_t boot_time) {
+    ESP_LOGI(TAG, "ENTRANDO STANDARD CYCLLE");
+    // Check credentials saved in flash
+    char ssid_buffer[33] = {0};
+    char pass_buffer[64] = {0};
+    get_nvs_string("wifi_ssid", ssid_buffer, sizeof(ssid_buffer));
+    get_nvs_string("wifi_pass", pass_buffer, sizeof(pass_buffer));
+
+    // No wifi found, force config mode
+    // if (strlen(ssid_buffer) == 0) {
+    //     ESP_LOGE(TAG, "Sem WiFi configurado! Forçando modo de configuração.");
+    //     setup_configuration();
+    //     return; // After leaving config mode, go to deep sleep and try again
+    // }
+
+    currentProcess = "WIFI";
+    // Wifi Init
+    WifiConfig cfg;
+    cfg.ssid = "Alencar";
+    cfg.password = "gol686837";
+    cfg.max_retries = MAX_WIFI_RETRIES;
+    WifiManager::init(cfg);
+    
+    if(WifiManager::waitForConnection(WatchdogManager::reset)) {
+        if(WifiManager::hasFailed()) {
+            WifiManager::recover();
+        }
+    }
+
+    if (WifiManager::isConnected()) check_ota();
+
+    readSensors();
+    if (checkSystemHealth(boot_time)) {
+        sendData();
+    } else {
+        ESP_LOGE(TAG, "Health check failed. Skipping data post.");
+    }
+}
+
 
 extern "C" void app_main(void)
 {   
@@ -430,13 +437,13 @@ extern "C" void app_main(void)
     // Treat button logic
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
 
-    if (cause == ESP_SLEEP_WAKEUP_EXT0) {
-        ESP_LOGW(TAG, "Wakeup by External Button! Entering Config Mode...");
-        config_button_pressed = true;
-    } else {
-        ESP_LOGI(TAG, "Wakeup by Timer. Standard Cycle.");
-        config_button_pressed = false;
-    }
+    // if (cause == ESP_SLEEP_WAKEUP_EXT0) {
+    //     ESP_LOGW(TAG, "Wakeup by External Button! Entering Config Mode...");
+    //     config_button_pressed = true;
+    // } else {
+    //     ESP_LOGI(TAG, "Wakeup by Timer. Standard Cycle.");
+    //     config_button_pressed = false;
+    // }
 
 
     if (config_button_pressed) {
