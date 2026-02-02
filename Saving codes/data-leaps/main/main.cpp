@@ -461,9 +461,16 @@ static void standard_cycle() {
     if (WifiManager::isConnected()) check_ota();
 
     readSensors();
-    checkSystemHealth();
-    if (micro_sd_strategy) // funcao do miro sd
-    sendData();
+
+    bool system_health = checkSystemHealth(); 
+
+    // POST or SD?
+    if (WifiManager::isConnected() && system_health) {
+        sendData(); // send HTTP
+    } else {
+        ESP_LOGW(TAG, "HEALTH OR CONNECTION FAILED, ENTERING MICRO SD LOGIC.");
+        saveDataOffline(); // save in MicroSD
+    }
 }
 
 static void recover_wifi() {
@@ -516,7 +523,7 @@ static void recover_wifi() {
                     set_backup_active(!current_is_backup);
 
                     // Returns to the first recover strategy
-                    nvs_set_i8(my_nvs_handle, "next_strategy", 1);
+                    nvs_set_i8(my_nvs_handle, "fail_streak", 0);
                     nvs_commit(my_nvs_handle);
 
                     return;
@@ -528,14 +535,15 @@ static void recover_wifi() {
             }
             break;
         // Third strategy: Nothing esp can do, will keep trying connection with the first ssid
-        case 3:
-            ESP_LOGI(TAG, "All strategies failed, returning to standart cycle. Trying connection with first ssid again.");
-            nvs_set_i8(my_nvs_handle, "next_strategy", 0);
-            nvs_commit(my_nvs_handle);
+        case 3 ... 10:
+            ESP_LOGW(TAG, "All strategies failed, returning to standart cycle.");
             break;
         // Until we stablish connection, all next failures will end here, which means it will ignore and keep trying connection/micro sd saving.
         default:
-            return;
+            ESP_LOGW(TAG, "Too many fails, restarting strategy cycle.");
+            nvs_set_i8(my_nvs_handle, "next_strategy", 0);
+            nvs_commit(my_nvs_handle);
+            break;
     }
 
 }
@@ -579,6 +587,16 @@ static void check_backup_fallback() {
     }
     nvs_commit(my_nvs_handle);
 }
+
+static void saveDataOffline() {
+    currentProcess = "SAVE_OFFLINE";
+    ESP_LOGW(TAG, ">> MODO OFFLINE: Salvando dados no MicroSD (Simulação) <<");
+    // TODO: Implementar lógica real do SD aqui
+    // mount_sd();
+    // append_file("/sd/log.txt", json...);
+    // unmount_sd();
+}
+
 
 extern "C" void app_main(void)
 {   
