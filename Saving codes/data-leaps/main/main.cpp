@@ -26,7 +26,7 @@
 
 // OTA MACROS
 #define FIRMWARE_VERSION 1
-#define DEVICE_ID "ESP32S3_METEOROLOGIA_1"
+#define DEVICE_ID "ESP32S3_TESTE_1"
 #define TIME_TO_VALIDATE_OTA 30000000 // 30 seconds to consider firmware "stable"
 #define MAX_CRASH_COUNT 3 // Maximum allowed crashes before forcing a rollback
 #define URL_CHECK "http://192.168.15.52:8080/ciclo/firmware/check"
@@ -65,9 +65,15 @@ int8_t crashCount;
 bool config_button_pressed = false;
 bool micro_sd_strategy = false;
 int64_t boot_time;
-
-
 RTC_DATA_ATTR int boot_count = 0;
+
+static void standard_cycle();
+static void recover_wifi();
+static bool is_backup_active();
+static void set_backup_active(bool active);
+static void check_backup_fallback();
+static void saveDataOffline();
+static void sendData();
 
 // ======= MANUAL ROLLBACK HELPER =========
 static void invalidate_version_and_rollback() {
@@ -90,6 +96,18 @@ static void get_nvs_string(const char* key, char* out_buffer, size_t max_len) {
 
 // ======= BLE DATA CALLBACK =================
 static void process_ble_data(const std::string& data) {
+
+    // EX JSON ESPERADO:
+    // {
+    // "wifi_ssid": "SuaRedePrincipal",
+    // "wifi_pass": "SuaSenhaPrincipal",
+    // "wifi_backup_ssid": "RedeDoVizinho",
+    // "wifi_backup_pass": "SenhaDoVizinho"
+    // }
+
+    // {
+    // "cmd": "exit"
+    // }
     ESP_LOGI("BLE_CB", "Dados: %s", data.c_str());
 
     cJSON *json = cJSON_Parse(data.c_str());
@@ -492,7 +510,7 @@ static void recover_wifi() {
             esp_restart();
             break;
         // Second Strategy (try backup ssid)
-        case 2:
+        case 2: {
             bool current_is_backup = is_backup_active();
 
             const char* target_ssid_key = current_is_backup ? "wifi_ssid" : "wifi_backup_ssid";
@@ -534,6 +552,7 @@ static void recover_wifi() {
                 ESP_LOGW(TAG, "No backup found. Skipping strategy.");
             }
             break;
+        }
         // Third strategy: Nothing esp can do, will keep trying connection with the first ssid
         case 3 ... 10:
             ESP_LOGW(TAG, "All strategies failed, returning to standart cycle.");
@@ -632,6 +651,10 @@ extern "C" void app_main(void)
     WifiManager::stop();
     // Sleep for 60 seconds
     esp_sleep_enable_timer_wakeup(60000000); 
+
+    rtc_gpio_pullup_en(BUTTON_GPIO);
+    rtc_gpio_pulldown_dis(BUTTON_GPIO);
+
     esp_sleep_enable_ext0_wakeup(BUTTON_GPIO, 0);
     esp_deep_sleep_start();
 }
