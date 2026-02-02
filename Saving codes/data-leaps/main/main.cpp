@@ -63,6 +63,7 @@ static std::string currentProcess;
 int current_voltage = 0.0f;
 int8_t crashCount;
 bool config_button_pressed = false;
+bool micro_sd_strategy = false;
 int64_t boot_time;
 
 
@@ -400,23 +401,30 @@ static bool checkSystemHealth() {
 static void standard_cycle() {
     ESP_LOGI(TAG, "ENTRANDO STANDARD CYCLE");
 
+    check_backup_fallback();
+
+    bool use_backup = is_backup_active();
+    const char* ssid_key = use_backup ? "wifi_backup_ssid" : "wifi_ssid";
+    const char* pass_key = use_backup ? "wifi_backup_pass" : "wifi_pass";
+
     // Check credentials saved in flash
-    char ssid_buffer[33] = {0};
-    char pass_buffer[64] = {0};
-    get_nvs_string("wifi_ssid", ssid_buffer, sizeof(ssid_buffer));
-    get_nvs_string("wifi_pass", pass_buffer, sizeof(pass_buffer));
+    char ssid[33] = {0};
+    char pass[64] = {0};
+    get_nvs_string(ssid_key, ssid, sizeof(ssid));
+    get_nvs_string(pass_key, pass, sizeof(pass));
+    
 
     // No wifi found, force config mode
-    if (strlen(ssid_buffer) == 0) {
+    if (strlen(ssid) == 0) {
         ESP_LOGE(TAG, "No WiFi configured! Forcing config mode.");
         setup_configuration();
 
-        // Check credentials saved in flash again
-        get_nvs_string("wifi_ssid", ssid_buffer, sizeof(ssid_buffer));
-        get_nvs_string("wifi_pass", pass_buffer, sizeof(pass_buffer));
+        // Check credentials again (should be new)
+        get_nvs_string("wifi_ssid", ssid, sizeof(ssid));
+        get_nvs_string("wifi_pass", pass, sizeof(pass));
 
         // If still empty, abort
-        if (strlen(ssid_buffer) == 0) {
+        if (strlen(ssid) == 0) {
              ESP_LOGW(TAG, "Config canceled or invalid. Sleeping...");
              return;
         }
@@ -426,62 +434,151 @@ static void standard_cycle() {
     currentProcess = "WIFI";
     // Wifi Init
     WifiConfig cfg;
-    cfg.ssid = ssid_buffer;
-    cfg.password = pass_buffer;
+    cfg.ssid = ssid;
+    cfg.password = pass;
     cfg.max_retries = MAX_WIFI_RETRIES;
     WifiManager::init(cfg);
     
     bool connected = WifiManager::waitForConnection(WatchdogManager::reset);
-    // Falhou definitivamente apos todas tentativas
-    if(!connected && WifiManager::hasFailed()) {
-        recover_wifi();
+
+    // Failed after all attempts
+    if (!connected) {
+        recover_wifi(); 
+        // Check if the backup ssid connected
+        if (WifiManager::isConnected()) connected = true;
+    } else {
+        // If connected, restart the failure counter 
+        int8_t streak = 0;
+        nvs_get_i8(my_nvs_handle, "fail_streak", &streak);
+        if (streak > 0) {
+            nvs_set_i8(my_nvs_handle, "fail_streak", 0);
+            nvs_commit(my_nvs_handle);
+            ESP_LOGI(TAG, "Stable connection. Failure counter zeroed.");
+        }
+
     }
 
     if (WifiManager::isConnected()) check_ota();
 
     readSensors();
-    if (checkSystemHealth()) {
-        sendData();
-    } else {
-        ESP_LOGE(TAG, "Health check failed. Skipping data post.");
-    }
+    checkSystemHealth();
+    if (micro_sd_strategy) // funcao do miro sd
+    sendData();
 }
 
 static void recover_wifi() {
     // 1 = reset
     // 2 = backup ssid
     // 3 = tenta conexao todo ciclo
-    int8_t next_strategy;
-    esp_err_t err = nvs_get_i8(my_nvs_handle, "next_strategy", &next_strategy);
-    if (err == ESP_ERR_NVS_NOT_FOUND) next_strategy = 1;
+    int8_t fail_streak = 0;
+    nvs_get_i8(my_nvs_handle, "fail_streak", &fail_streak);
+    
+    fail_streak++; 
+    nvs_set_i8(my_nvs_handle, "fail_streak", fail_streak);
+    nvs_commit(my_nvs_handle);
 
-    switch(next_strategy) {
+    switch(fail_streak) {
         // First Strategy (try a simple reset)
         case 1: 
             ESP_LOGI(TAG, "Trying simple reset to reload wifi driver");
-            nvs_set_i8(my_nvs_handle, "next_strategy", 2);
+            vTaskDelay(pdMS_TO_TICKS(1000));
             esp_restart();
+            break;
         // Second Strategy (try backup ssid)
         case 2:
-            char backup_ssid[33] = {0};
-            char backup_pass[64] = {0};
+            bool current_is_backup = is_backup_active();
 
-            ESP_LOGI(TAG, "Trying backup ssid logic");
-            nvs_set_i8(my_nvs_handle, "next_strategy", 2);
-
-            get_nvs_string("wifi_backup_ssid", backup_ssid, sizeof(backup_ssid));
-            get_nvs_string("wifi_backup_pass", backup_pass, sizeof(backup_pass));
+            const char* target_ssid_key = current_is_backup ? "wifi_ssid" : "wifi_backup_ssid";
+            const char* target_pass_key = current_is_backup ? "wifi_pass" : "wifi_backup_pass";
             
-            // Como eu faria pra reconectar aqui, tem como trocar a cfg do wifiConfig ja criado e dar um reconnect? Ou aquela cfg que criei é fixa? Teria que usar o metodo deinit?
+            ESP_LOGW(TAG, "STRATEGY 2: Switching to ssid %s", current_is_backup ? "PRINCIPAL" : "BACKUP");
 
+            char ssid[33] = {0};
+            char pass[64] = {0};
+            get_nvs_string(target_ssid_key, ssid, sizeof(ssid));
+            get_nvs_string(target_pass_key, pass, sizeof(pass));
+            
+            if (strlen(ssid) > 0) {
+
+            WifiManager::deinit();
+
+                WifiConfig newCfg;
+                WifiConfig cfg;
+                cfg.ssid = ssid;
+                cfg.password = pass;
+                cfg.max_retries = MAX_WIFI_RETRIES;
+                WifiManager::init(cfg);
+                
+
+                if (WifiManager::waitForConnection(WatchdogManager::reset)) {
+                    ESP_LOGI(TAG, "Success: connected on the backup wifi!");
+
+                    set_backup_active(!current_is_backup);
+
+                    // Returns to the first recover strategy
+                    nvs_set_i8(my_nvs_handle, "next_strategy", 1);
+                    nvs_commit(my_nvs_handle);
+
+                    return;
+                } else {
+                    ESP_LOGE(TAG, "FAIL: Backup Wifi failed too.");
+                }
+            } else {
+                ESP_LOGW(TAG, "No backup found. Skipping strategy.");
+            }
+            break;
+        // Third strategy: Nothing esp can do, will keep trying connection with the first ssid
+        case 3:
+            ESP_LOGI(TAG, "All strategies failed, returning to standart cycle. Trying connection with first ssid again.");
+            nvs_set_i8(my_nvs_handle, "next_strategy", 0);
+            nvs_commit(my_nvs_handle);
+            break;
+        // Until we stablish connection, all next failures will end here, which means it will ignore and keep trying connection/micro sd saving.
+        default:
+            return;
     }
-    // First Strategy (try a simple reset)
-    ESP_LOGI(TAG, "Trying simple reset to reload wifi driver");
-    nvs_set_str(my_nvs_handle, "current_strategy", "reset");
-    esp_restart();
 
 }
 
+static bool is_backup_active() {
+    int8_t val = 0;
+    nvs_get_i8(my_nvs_handle, "use_backup", &val);
+    return (val == 1);
+}
+
+static void set_backup_active(bool active) {
+    nvs_set_i8(my_nvs_handle, "use_backup", active ? 1 : 0);
+    nvs_commit(my_nvs_handle);
+}
+
+// Helper to count boots on backup mode
+static void check_backup_fallback() {
+    if (!is_backup_active()) {
+        // If we are on the main ssid, zero counter
+        nvs_set_i32(my_nvs_handle, "backup_boots", 0);
+        nvs_commit(my_nvs_handle);
+        return;
+    }
+
+    int32_t boots = 0;
+    nvs_get_i32(my_nvs_handle, "backup_boots", &boots);
+    boots++;
+
+    ESP_LOGW(TAG, "Using backup ssid. Cycle: %ld/100", boots);
+
+    if (boots >= 100) {
+        ESP_LOGW(TAG, "Limit backup boots reached. Trying to go back to main ssid...");
+        
+        set_backup_active(false); 
+
+        nvs_set_i32(my_nvs_handle, "backup_boots", 0);
+
+    } else {
+        // Still below the limit, just increment
+        nvs_set_i32(my_nvs_handle, "backup_boots", boots);
+    }
+    nvs_commit(my_nvs_handle);
+}
 
 extern "C" void app_main(void)
 {   
