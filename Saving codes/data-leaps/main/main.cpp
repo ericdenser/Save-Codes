@@ -63,11 +63,12 @@ static std::string currentProcess;
 int current_voltage = 0.0f;
 int8_t crashCount;
 bool config_button_pressed = false;
+int64_t boot_time;
 
 
 RTC_DATA_ATTR int boot_count = 0;
 
-// ======= MANUAL ROLL BACK HELPER =========
+// ======= MANUAL ROLLBACK HELPER =========
 static void invalidate_version_and_rollback() {
     ESP_LOGE(TAG, "Unstable firmware detected! Initiating manual Rollback...");
 
@@ -111,14 +112,24 @@ static void process_ble_data(const std::string& data) {
 
         cJSON *ssid = cJSON_GetObjectItem(json, "wifi_ssid");
         cJSON *pass = cJSON_GetObjectItem(json, "wifi_pass");
+        cJSON *backup_ssid = cJSON_GetObjectItem(json, "wifi_backup_ssid");
+        cJSON *backup_pass = cJSON_GetObjectItem(json, "wifi_backup_pass");
         
         if (cJSON_IsString(ssid) && (ssid->valuestring != NULL)) {
             nvs_set_str(handle, "wifi_ssid", ssid->valuestring);
-            ESP_LOGI("BLE_CB", "SSID saved: %s", ssid->valuestring);
+            ESP_LOGI("MAIN-BLE", "SSID saved: %s", ssid->valuestring);
         }
         if (cJSON_IsString(pass) && (pass->valuestring != NULL)) {
             nvs_set_str(handle, "wifi_pass", pass->valuestring);
-            ESP_LOGI("BLE_CB", "Password saved");
+            ESP_LOGI("MAIN-BLE", "Password saved");
+        }
+        if (cJSON_IsString(backup_ssid) && (backup_ssid->valuestring != NULL)) {
+            nvs_set_str(handle, "wifi_backup_ssid", backup_ssid->valuestring);
+            ESP_LOGI("MAIN-BLE", "BACKUP SSID saved: %s", backup_ssid->valuestring);
+        }
+        if (cJSON_IsString(backup_pass) && (backup_pass->valuestring != NULL)) {
+            nvs_set_str(handle, "wifi_backup_pass", backup_pass->valuestring);
+            ESP_LOGI("MAIN-BLE", "BACKUP PASS saved");
         }
 
         // // Outras configs opcionais
@@ -133,7 +144,7 @@ static void process_ble_data(const std::string& data) {
     }
     cJSON_Delete(json);
 
-    ESP_LOGI("BLE_CB", "Configurações recebidas! Procedindo com Setup...");
+    ESP_LOGI("BLE_CB", "Configurações recebidas!");
     
     //Warns setup he can continue
     if (s_config_event_group != NULL) {
@@ -180,6 +191,7 @@ static void setup_configuration() {
 
     BleManager::stop();
     ESP_LOGI(TAG, "Config finished. Returning to cycle...");
+    standard_cycle();
     vTaskDelay(pdMS_TO_TICKS(2000));
 }
 
@@ -310,7 +322,7 @@ static bool wait_for_condition(std::function<bool()> condition, uint32_t timeout
     return true;
 }
 
-static bool checkSystemHealth(int64_t boot_time) {
+static bool checkSystemHealth() {
     ESP_LOGI(TAG, "ENTRANDO CHECKING HEALTH");
     bool wifi_valid = false;
     bool battery_valid = true;
@@ -385,8 +397,9 @@ static bool checkSystemHealth(int64_t boot_time) {
 } 
 
 // ======================= NORMAL CYCLE =======================
-static void standard_cycle(int64_t boot_time) {
-    ESP_LOGI(TAG, "ENTRANDO STANDARD CYCLLE");
+static void standard_cycle() {
+    ESP_LOGI(TAG, "ENTRANDO STANDARD CYCLE");
+
     // Check credentials saved in flash
     char ssid_buffer[33] = {0};
     char pass_buffer[64] = {0};
@@ -394,41 +407,86 @@ static void standard_cycle(int64_t boot_time) {
     get_nvs_string("wifi_pass", pass_buffer, sizeof(pass_buffer));
 
     // No wifi found, force config mode
-    // if (strlen(ssid_buffer) == 0) {
-    //     ESP_LOGE(TAG, "Sem WiFi configurado! Forçando modo de configuração.");
-    //     setup_configuration();
-    //     return; // After leaving config mode, go to deep sleep and try again
-    // }
+    if (strlen(ssid_buffer) == 0) {
+        ESP_LOGE(TAG, "No WiFi configured! Forcing config mode.");
+        setup_configuration();
+
+        // Check credentials saved in flash again
+        get_nvs_string("wifi_ssid", ssid_buffer, sizeof(ssid_buffer));
+        get_nvs_string("wifi_pass", pass_buffer, sizeof(pass_buffer));
+
+        // If still empty, abort
+        if (strlen(ssid_buffer) == 0) {
+             ESP_LOGW(TAG, "Config canceled or invalid. Sleeping...");
+             return;
+        }
+        ESP_LOGI(TAG, "New credentials found, trying connection...");
+    }
 
     currentProcess = "WIFI";
     // Wifi Init
     WifiConfig cfg;
-    cfg.ssid = "Alencar";
-    cfg.password = "gol686837";
+    cfg.ssid = ssid_buffer;
+    cfg.password = pass_buffer;
     cfg.max_retries = MAX_WIFI_RETRIES;
     WifiManager::init(cfg);
     
-    if(WifiManager::waitForConnection(WatchdogManager::reset)) {
-        if(WifiManager::hasFailed()) {
-            WifiManager::recover();
-        }
+    bool connected = WifiManager::waitForConnection(WatchdogManager::reset);
+    // Falhou definitivamente apos todas tentativas
+    if(!connected && WifiManager::hasFailed()) {
+        recover_wifi();
     }
 
     if (WifiManager::isConnected()) check_ota();
 
     readSensors();
-    if (checkSystemHealth(boot_time)) {
+    if (checkSystemHealth()) {
         sendData();
     } else {
         ESP_LOGE(TAG, "Health check failed. Skipping data post.");
     }
 }
 
+static void recover_wifi() {
+    // 1 = reset
+    // 2 = backup ssid
+    // 3 = tenta conexao todo ciclo
+    int8_t next_strategy;
+    esp_err_t err = nvs_get_i8(my_nvs_handle, "next_strategy", &next_strategy);
+    if (err == ESP_ERR_NVS_NOT_FOUND) next_strategy = 1;
+
+    switch(next_strategy) {
+        // First Strategy (try a simple reset)
+        case 1: 
+            ESP_LOGI(TAG, "Trying simple reset to reload wifi driver");
+            nvs_set_i8(my_nvs_handle, "next_strategy", 2);
+            esp_restart();
+        // Second Strategy (try backup ssid)
+        case 2:
+            char backup_ssid[33] = {0};
+            char backup_pass[64] = {0};
+
+            ESP_LOGI(TAG, "Trying backup ssid logic");
+            nvs_set_i8(my_nvs_handle, "next_strategy", 2);
+
+            get_nvs_string("wifi_backup_ssid", backup_ssid, sizeof(backup_ssid));
+            get_nvs_string("wifi_backup_pass", backup_pass, sizeof(backup_pass));
+            
+            // Como eu faria pra reconectar aqui, tem como trocar a cfg do wifiConfig ja criado e dar um reconnect? Ou aquela cfg que criei é fixa? Teria que usar o metodo deinit?
+
+    }
+    // First Strategy (try a simple reset)
+    ESP_LOGI(TAG, "Trying simple reset to reload wifi driver");
+    nvs_set_str(my_nvs_handle, "current_strategy", "reset");
+    esp_restart();
+
+}
+
 
 extern "C" void app_main(void)
 {   
     // Record boot time for validation firmware logic
-    int64_t boot_time = esp_timer_get_time();
+    boot_time = esp_timer_get_time();
 
     boot_count++;
 
@@ -437,19 +495,19 @@ extern "C" void app_main(void)
     // Treat button logic
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
 
-    // if (cause == ESP_SLEEP_WAKEUP_EXT0) {
-    //     ESP_LOGW(TAG, "Wakeup by External Button! Entering Config Mode...");
-    //     config_button_pressed = true;
-    // } else {
-    //     ESP_LOGI(TAG, "Wakeup by Timer. Standard Cycle.");
-    //     config_button_pressed = false;
-    // }
+    if (cause == ESP_SLEEP_WAKEUP_EXT0) {
+        ESP_LOGW(TAG, "Wakeup by External Button! Entering Config Mode...");
+        config_button_pressed = true;
+    } else {
+        ESP_LOGI(TAG, "Wakeup by Timer. Standard Cycle.");
+        config_button_pressed = false;
+    }
 
 
     if (config_button_pressed) {
         setup_configuration();
     } else {
-        standard_cycle(boot_time);
+        standard_cycle();
     }
 
     ESP_LOGI(TAG, "Finalized cycle. Sleeping...");
