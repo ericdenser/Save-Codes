@@ -25,11 +25,17 @@
 #include "src/HttpService.h"
 
 // OTA MACROS
-#define FIRMWARE_VERSION 1
+#define FIRMWARE_VERSION 3
 #define DEVICE_ID "ESP32S3_TESTE_1"
 #define TIME_TO_VALIDATE_OTA 30000000 // 30 seconds to consider firmware "stable"
 #define MAX_CRASH_COUNT 3 // Maximum allowed crashes before forcing a rollback
-#define URL_CHECK "http://192.168.15.52:8080/ciclo/firmware/check"
+#define URL_CHECK "http://172.16.38.146:8080/ciclo/firmware/check"
+
+
+// --- Pinos do LED RGB ---
+#define LED_PIN_R GPIO_NUM_16
+#define LED_PIN_G GPIO_NUM_17
+#define LED_PIN_B GPIO_NUM_18
 
 // BATTERY MACROS
 #define BATTERY_MIN_VOLTAGE 3100.0
@@ -56,6 +62,7 @@ static EventGroupHandle_t s_config_event_group;
 #define CONFIG_TIMEOUT_MS 300000
 #define BUTTON_GPIO GPIO_NUM_0
 
+// global variables
 nvs_handle_t my_nvs_handle;
 static const char *TAG = "MAIN_APP";
 static std::string ota_msgOut;
@@ -67,6 +74,7 @@ bool micro_sd_strategy = false;
 int64_t boot_time;
 RTC_DATA_ATTR int boot_count = 0;
 
+// declarations
 static void standard_cycle();
 static void recover_wifi();
 static bool is_backup_active();
@@ -74,6 +82,33 @@ static void set_backup_active(bool active);
 static void check_backup_fallback();
 static void saveDataOffline();
 static void sendData();
+static void setup_leds();
+static void set_led_color(int r, int g, int b);
+
+
+static void setup_leds() {
+
+    gpio_config_t io_conf = {};
+
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    // Bitmask of gpios
+    io_conf.pin_bit_mask = (1ULL<<LED_PIN_R) | (1ULL<<LED_PIN_G) | (1ULL<<LED_PIN_B);
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_config(&io_conf);
+    
+    // Start turned off
+    set_led_color(0, 0, 0);
+
+}
+
+static void set_led_color(int r, int g, int b) {
+    // 1 turn on, 0 turn off
+    gpio_set_level(LED_PIN_R, r);
+    gpio_set_level(LED_PIN_G, g);
+    gpio_set_level(LED_PIN_B, b);
+}
 
 // ======= MANUAL ROLLBACK HELPER =========
 static void invalidate_version_and_rollback() {
@@ -174,7 +209,8 @@ static void process_ble_data(const std::string& data) {
 // ======== CONFIG MODE ===========
 static void setup_configuration() {
     ESP_LOGI(TAG, ">>>> JOINING CONFIG MODE (5min TIMEOUT) <<<<<< ");
-
+    // Liga led azul (BLE LIGADO)
+    set_led_color(0, 0, 1);
     currentProcess = "BLE";
     // start ble
     BleConfig ble;
@@ -210,6 +246,8 @@ static void setup_configuration() {
 
     BleManager::stop();
     ESP_LOGI(TAG, "Config finished. Returning to cycle...");
+    // Turn off led
+    set_led_color(0, 0, 0);
     standard_cycle();
     vTaskDelay(pdMS_TO_TICKS(2000));
 }
@@ -227,6 +265,9 @@ static void setup_crucial() {
     }
     ESP_ERROR_CHECK(err);
     ESP_ERROR_CHECK(nvs_open("OtaManager", NVS_READWRITE, &my_nvs_handle));
+
+    // Setup leds
+    setup_leds();
 
     // Crash Logic
     currentProcess = "CRASH_DETECTOR";
@@ -281,8 +322,8 @@ static bool check_ota() {
 static void readSensors() {
     ESP_LOGI(TAG, "ENTRANDO EM SENSORES");
     currentProcess = "READ_SENSORS";
-    //float voltage_mv = BatteryManager::readBattery();
-    current_voltage = 3500; //voltage_mv
+    float voltage_mv = BatteryManager::readBattery();
+    current_voltage = voltage_mv; 
 
 }
 
@@ -317,7 +358,14 @@ static void sendData() {
         ESP_LOGI(TAG, "Payload: %s", json_payload);
 
         ESP_LOGI(TAG, "Enviando POST...");
-        HttpService::post(MACK_URL, json_payload, response, msgOut, "application/json", MACK_API_KEY);
+        bool success = HttpService::post(MACK_URL, json_payload, response, msgOut, "application/json", MACK_API_KEY);
+        if (success) {
+            ESP_LOGI(TAG, "POST ENVIADO COM SUCESSO!");
+            return;
+        }
+        ESP_LOGI(TAG, "FALHA AO ENVIAR POST");
+        // Led amarelo (falha no post)
+        set_led_color(1, 1, 0);
     }
 }
 
@@ -347,7 +395,6 @@ static bool checkSystemHealth() {
     bool battery_valid = true;
     bool valid_firmware = false;
     
-
     currentProcess = "CHECK_BATTERY";
     // ============ Validate Battery Life =============
     if (current_voltage < BATTERY_MIN_VOLTAGE && current_voltage > 500) {
@@ -392,7 +439,9 @@ static bool checkSystemHealth() {
             // During this timer, if any crash happens, we save and treat it next boot 
             if (time_remaining > 0) {
                 ESP_LOGI(TAG, "Waiting for firmware estabilization (%lld seconds restantes)...", time_remaining / 1000000.0);
-                
+
+                // Turn purple to indicate Validation Timer
+                set_led_color(1, 0, 1);
                 int64_t wait_start = esp_timer_get_time();
                 while ((esp_timer_get_time() - wait_start) < time_remaining) {
                     WatchdogManager::reset();
@@ -412,6 +461,7 @@ static bool checkSystemHealth() {
             valid_firmware = true;
         }
     }
+    set_led_color(0, 0, 0);
     return (wifi_valid && valid_firmware);
 } 
 
@@ -484,9 +534,13 @@ static void standard_cycle() {
 
     // POST or SD?
     if (WifiManager::isConnected() && system_health) {
+        set_led_color(0, 1, 0);
         sendData(); // send HTTP
     } else {
         ESP_LOGW(TAG, "HEALTH OR CONNECTION FAILED, ENTERING MICRO SD LOGIC.");
+
+        // Led turn red, health check failed
+        set_led_color(1, 1, 0);
         saveDataOffline(); // save in MicroSD
     }
 }
@@ -645,10 +699,12 @@ extern "C" void app_main(void)
     }
 
     ESP_LOGI(TAG, "Finalized cycle. Sleeping...");
-    vTaskDelay(pdMS_TO_TICKS(100)); 
+    vTaskDelay(pdMS_TO_TICKS(2000)); 
 
 
     WifiManager::stop();
+    set_led_color(0, 0, 0);
+
     // Sleep for 60 seconds
     esp_sleep_enable_timer_wakeup(60000000); 
 
@@ -692,3 +748,4 @@ extern "C" void app_main(void)
     //              // wdt triggers here
     //         }
     //     }
+
