@@ -78,7 +78,7 @@ float BatteryManager::readBattery()
     }
     
     int raw = 0;
-
+    // Média de 64 leituras para estabilizar
     for (int i = 0; i < 64; i++) {
         int sample;
         ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, ADC_CHANNEL, &sample));
@@ -86,14 +86,23 @@ float BatteryManager::readBattery()
     }
     raw /= 64;
 
+    int voltage_pin_mv = 0;
+
     if (calibrated) {
-        int mv = 0;
-        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc_cali_handle, raw, &mv));
-        return mv * 2.0f;  // ajuste conforme divisor resistivo
+        // Converte RAW (0-4095) para Milivolts reais no pino (ex: 1880 mV)
+        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc_cali_handle, raw, &voltage_pin_mv));
+    } else {
+        // Fallback aproximado se calibração falhar (S3: 4095 ~= 3100mV com DB_12)
+        // Isso é impreciso, use apenas se o 'if calibrated' falhar
+        voltage_pin_mv = raw * 3100 / 4095; 
     }
 
-    // Fallback se não calibrado
-    return float(raw) * 2.0f;
+    // Fator do Divisor de Tensão
+    // Se estiver lendo errado, ajuste este número.
+    // Ex: No multímetro estava dando 3,72, e no pino 3,68, (3720 / 3684) * 2.0 = 2.0195... -> 2.02
+    
+    float correction_factor = 2.02f; 
 
+    return (float)voltage_pin_mv * correction_factor;
 }
 
