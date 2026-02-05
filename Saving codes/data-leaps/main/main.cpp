@@ -23,6 +23,7 @@
 #include "src/BatteryManager.h" 
 #include "src/BleManager.h"
 #include "src/HttpService.h"
+#include "src/DhtManager.h"
 
 // OTA MACROS
 #define FIRMWARE_VERSION 3
@@ -67,12 +68,18 @@ nvs_handle_t my_nvs_handle;
 static const char *TAG = "MAIN_APP";
 static std::string ota_msgOut;
 static std::string currentProcess;
-int current_voltage = 0.0f;
 int8_t crashCount;
 bool config_button_pressed = false;
 bool micro_sd_strategy = false;
 int64_t boot_time;
 RTC_DATA_ATTR int boot_count = 0;
+
+// data
+float current_voltage = 0.0f;
+float current_temperature = 0.0f;
+float current_umidity = 0.0f;
+
+
 
 // declarations
 static void standard_cycle();
@@ -134,8 +141,8 @@ static void process_ble_data(const std::string& data) {
 
     // EX JSON ESPERADO:
     // {
-    // "wifi_ssid": "SuaRedePrincipal",
-    // "wifi_pass": "SuaSenhaPrincipal",
+    // "wifi_ssid": "SuaRede",
+    // "wifi_pass": "SuaSenha",
     // "wifi_backup_ssid": "RedeDoVizinho",
     // "wifi_backup_pass": "SenhaDoVizinho"
     // }
@@ -322,8 +329,20 @@ static bool check_ota() {
 static void readSensors() {
     ESP_LOGI(TAG, "ENTRANDO EM SENSORES");
     currentProcess = "READ_SENSORS";
+
+    // ============ VOLTAGE ==============
     float voltage_mv = BatteryManager::readBattery();
     current_voltage = voltage_mv; 
+
+    // ============ DHT (Temperature + Humidity) ======
+    DhtManager::init();
+    if (DhtManager::read()) {
+        current_temperature = DhtManager::getTemperature();
+        current_umidity = DhtManager::getHumidity();
+    } else {
+        ESP_LOGE(TAG, "Erro ao ler sensor DHT");
+    }
+    
 
 }
 
@@ -332,7 +351,7 @@ static void sendData() {
     // essa funcao precisa receber os dados de alguma forma, global ou parametro
     if (WifiManager::isConnected()) {
 
-        char json_payload[300];
+        char json_payload[500];
         std::string response, msgOut;
 
         // Coleta dados
@@ -343,7 +362,7 @@ static void sendData() {
 
 
         snprintf(json_payload, sizeof(json_payload),
-                "{\"device\":\"%s\",\"mac\":\"%s\",\"version\":%d,\"ssid\":\"%s\",\"ip\":\"%s\",\"last_reset_reason\":%d,\"crash_count\":%d,\"voltage\":%.2d,\"boot\":%d,\"rssi\":%d}",
+                "{\"device\":\"%s\",\"mac\":\"%s\",\"version\":%d,\"ssid\":\"%s\",\"ip\":\"%s\",\"last_reset_reason\":%d,\"crash_count\":%d,\"voltage\":%.2f,\"temperature\":%.2f,\"umidity\":%.2f,\"boot\":%d,\"rssi\":%d}",
                 DEVICE_ID, 
                 WifiManager::getMacAddress().c_str(), 
                 FIRMWARE_VERSION,
@@ -351,7 +370,9 @@ static void sendData() {
                 ip.c_str(),
                 reason,
                 crashCount, 
-                current_voltage, 
+                current_voltage,
+                current_temperature,
+                current_umidity, 
                 boot_count,
                 rssi);
 
