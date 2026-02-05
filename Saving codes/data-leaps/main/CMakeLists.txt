@@ -7,6 +7,8 @@ idf_component_register(
         "src/WatchdogManager.cpp" 
         "src/BatteryManager.cpp" 
         "src/BleManager.cpp"
+        "src/DhtManager.cpp"
+        "src/SpsManager.cpp"
     INCLUDE_DIRS 
         "." 
         "src"
@@ -19,9 +21,11 @@ idf_component_register(
         esp_http_client 
         esp_timer 
         mbedtls 
-        bt 
         esp_https_ota 
         app_update 
         json 
+        bt
         esp_partition
+        i2cdev
+        sps30
 )
