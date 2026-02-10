@@ -10,11 +10,11 @@
 static const char *TAG = "AdcManager";
 
 // Definições estáticas
-adc_oneshot_unit_handle_t AdcService::_adc_handle = NULL;
-adc_cali_handle_t AdcService::_adc_cali_handle = NULL;
-bool AdcService::_is_initialized = false;
+adc_oneshot_unit_handle_t AdcManager::_adc_handle = NULL;
+adc_cali_handle_t AdcManager::_adc_cali_handle = NULL;
+bool AdcManager::_is_initialized = false;
 
-void AdcService::init() {
+void AdcManager::init() {
     if (_is_initialized) return;
 
     ESP_LOGI(TAG, "Iniciando ADC Manager (Unit 1)");
@@ -42,7 +42,7 @@ void AdcService::init() {
     _is_initialized = true;
 }
 
-void AdcService::configChannel(adc_channel_t channel) {
+void AdcManager::configChannel(adc_channel_t channel) {
     if (!_is_initialized) init();
 
     adc_oneshot_chan_cfg_t config = {
@@ -53,7 +53,7 @@ void AdcService::configChannel(adc_channel_t channel) {
     adc_oneshot_config_channel(_adc_handle, channel, &config);
 }
 
-int AdcService::readMilliVolts(adc_channel_t channel) {
+int AdcManager::readMilliVolts(adc_channel_t channel) {
     if (!_is_initialized) init();
 
     int raw = 0;
