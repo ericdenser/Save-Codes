@@ -24,6 +24,8 @@
 #include "src/BleManager.h"
 #include "src/HttpService.h"
 #include "src/DhtManager.h"
+#include "src/AdcManager.h"
+#include "src/Mq135Manager.h"
 
 // OTA MACROS
 #define FIRMWARE_VERSION 3
@@ -37,6 +39,16 @@
 #define LED_PIN_R GPIO_NUM_16
 #define LED_PIN_G GPIO_NUM_17
 #define LED_PIN_B GPIO_NUM_18
+
+// --- LED RGB 2 (Novo - Bloco Sequencial) ---
+#define LED2_PIN_R GPIO_NUM_9
+#define LED2_PIN_G GPIO_NUM_10
+#define LED2_PIN_B GPIO_NUM_11
+
+// --- LED RGB 3 (Novo - Sequência + Auxiliar) ---
+#define LED3_PIN_R GPIO_NUM_12
+#define LED3_PIN_G GPIO_NUM_13
+#define LED3_PIN_B GPIO_NUM_14
 
 // BATTERY MACROS
 #define BATTERY_MIN_VOLTAGE 3100.0
@@ -90,31 +102,131 @@ static void check_backup_fallback();
 static void saveDataOffline();
 static void sendData();
 static void setup_leds();
-static void set_led_color(int r, int g, int b);
+static void set_led1_color(int r, int g, int b);
+static void set_led2_color(int r, int g, int b);
+static void set_led3_color(int r, int g, int b);
+static void update_status_leds();
+static void restore_leds_state();
 
+struct LedColor {
+    int r;
+    int g;
+    int b;
+};
+
+LedColor led1_status = {0, 0, 0}; // WiFi
+LedColor led2_status = {0, 0, 0}; // Sensores
+LedColor led3_status = {0, 0, 0}; // Bateria
 
 static void setup_leds() {
 
+    ESP_LOGI(TAG, "Setupping leds");
     gpio_config_t io_conf = {};
 
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
     // Bitmask of gpios
-    io_conf.pin_bit_mask = (1ULL<<LED_PIN_R) | (1ULL<<LED_PIN_G) | (1ULL<<LED_PIN_B);
+    io_conf.pin_bit_mask = (1ULL<<LED_PIN_R) | (1ULL<<LED_PIN_G) | (1ULL<<LED_PIN_B) 
+    | (1ULL<<LED2_PIN_R) | (1ULL<<LED2_PIN_G) | (1ULL<<LED2_PIN_B) | (1ULL<<LED3_PIN_R) 
+    | (1ULL<<LED3_PIN_G) | (1ULL<<LED3_PIN_B);
     io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
     io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
     gpio_config(&io_conf);
     
     // Start turned off
-    set_led_color(0, 0, 0);
-
+    set_led1_color(0, 0, 0);
+    set_led2_color(0, 0, 0);
+    set_led3_color(0, 0, 0);
 }
 
-static void set_led_color(int r, int g, int b) {
+/* 
+INSTRUCAO DOS LEDS:
+LED 1: Verde quando WiFi conectado, 
+       Amarelo quando nao tem conexao,
+       Vermelho se nao tem credencial
+
+LED 2: Verde quando todos sensores leem dados "corretamente" (ex temperatura lendo 0 nao faz sentido),
+        Amarelo quando algum sensor leu um lado considerado invalido
+        Vermelho quando mais de um sensor leu um dado invalido
+
+LED 3: Verde quando bateria > 3800mV,
+        Amarelo quando bateria <  3800mV,
+        Vermelho quando bateria atingiu critico (3100mV)
+
+
+COMBINACOES: Todos leds piscam verde quando (POST FEITO COM SUCESSO)
+              Todos leds ficam azul quando (BLE LIGADO / MODO CONFIG)
+*/
+// Led do WiFi
+static void set_led1_color(int r, int g, int b) {
     // 1 turn on, 0 turn off
-    gpio_set_level(LED_PIN_R, r);
-    gpio_set_level(LED_PIN_G, g);
-    gpio_set_level(LED_PIN_B, b);
+    //ESP_LOGI(TAG, "Setting led1 color...");
+    gpio_set_level(LED_PIN_R, !r);
+    gpio_set_level(LED_PIN_G, !g);
+    gpio_set_level(LED_PIN_B, !b);
+}
+
+// Led da "saude" dos Sensores
+static void set_led2_color(int r, int g, int b) {
+    // 1 turn on, 0 turn off
+    //ESP_LOGI(TAG, "Setting led2 color...");
+    gpio_set_level(LED2_PIN_R, !r);
+    gpio_set_level(LED2_PIN_G, !g);
+    gpio_set_level(LED2_PIN_B, !b);
+}
+
+// Led da saude da bateria
+static void set_led3_color(int r, int g, int b) {
+    // 1 turn on, 0 turn off
+    //ESP_LOGI(TAG, "Setting led3 color...");
+    gpio_set_level(LED3_PIN_R, r);
+    gpio_set_level(LED3_PIN_G, g);
+    gpio_set_level(LED3_PIN_B, b);
+}
+
+
+static void update_status_leds() {
+    // WIFI
+    ESP_LOGI(TAG, "Updating main led status (wifi, sensor, battery)...");
+    if (WifiManager::isConnected()) {
+        led1_status = {0, 1, 0}; // Verde
+    } else {
+        led1_status = {1, 0, 0}; // Vermelho
+    }
+    // Aplica 
+    set_led1_color(led1_status.r, led1_status.g, led1_status.b);
+    vTaskDelay(pdMS_TO_TICKS(3000));
+
+
+    // SAÚDE SENSORES
+    // Exemplo: Se temperatura for menor que 5 graus, ou bateria abaixo de 2000mV (ja teria morrido)
+    if (current_temperature < 5.0f || current_umidity == 0.0f || current_voltage < 2000) {
+        led2_status = {1, 1, 0}; // Amarelo (Suspeito)
+    } else {
+        led2_status = {0, 1, 0}; // Verde (OK)
+    }
+    set_led2_color(led2_status.r, led2_status.g, led2_status.b);
+    vTaskDelay(pdMS_TO_TICKS(3000));
+
+    // BATERIA
+    if (current_voltage >= 3800.0) {
+        led3_status = {0, 1, 0}; // Verde (> 3.8V)
+    } else if (current_voltage >= 3100.0) {
+        led3_status = {1, 1, 0}; // Amarelo (< 3.8V mas > Crítico)
+    } else {
+        led3_status = {1, 0, 0}; // Vermelho (Crítico)
+    }
+    set_led3_color(led3_status.r, led3_status.g, led3_status.b);
+    vTaskDelay(pdMS_TO_TICKS(3000));
+}
+
+
+static void restore_leds_state() {
+    // Reaplica as cores salvas nas variáveis globais
+    ESP_LOGI(TAG, "Restoring led status...");
+    set_led1_color(led1_status.r, led1_status.g, led1_status.b);
+    set_led2_color(led2_status.r, led2_status.g, led2_status.b);
+    set_led3_color(led3_status.r, led3_status.g, led3_status.b);
 }
 
 // ======= MANUAL ROLLBACK HELPER =========
@@ -216,8 +328,10 @@ static void process_ble_data(const std::string& data) {
 // ======== CONFIG MODE ===========
 static void setup_configuration() {
     ESP_LOGI(TAG, ">>>> JOINING CONFIG MODE (5min TIMEOUT) <<<<<< ");
-    // Liga led azul (BLE LIGADO)
-    set_led_color(0, 0, 1);
+    // Liga todos leds azul (BLE LIGADO)
+    set_led1_color(0, 0, 1);
+    set_led2_color(0, 0, 1);
+    set_led3_color(0, 0, 1);
     currentProcess = "BLE";
     // start ble
     BleConfig ble;
@@ -254,7 +368,9 @@ static void setup_configuration() {
     BleManager::stop();
     ESP_LOGI(TAG, "Config finished. Returning to cycle...");
     // Turn off led
-    set_led_color(0, 0, 0);
+    set_led1_color(0, 0, 0);
+    set_led2_color(0, 0, 0);
+    set_led3_color(0, 0, 0);
     standard_cycle();
     vTaskDelay(pdMS_TO_TICKS(2000));
 }
@@ -275,6 +391,10 @@ static void setup_crucial() {
 
     // Setup leds
     setup_leds();
+
+    //Adc 
+    AdcManager::init();
+
 
     // Crash Logic
     currentProcess = "CRASH_DETECTOR";
@@ -342,8 +462,15 @@ static void readSensors() {
     } else {
         ESP_LOGE(TAG, "Erro ao ler sensor DHT");
     }
-    
 
+    // Mq135
+    // Mq135Manager::init();
+    // float vAr = Mq135Manager::readVoltage();
+    // vAr *= 2;
+    // ESP_LOGI(TAG, "VOLTAGEM LIDA: %.2f", vAr);
+    // vTaskDelay(pdMS_TO_TICKS(3000));
+
+    
 }
 
 static void sendData() {
@@ -382,11 +509,39 @@ static void sendData() {
         bool success = HttpService::post(MACK_URL, json_payload, response, msgOut, "application/json", MACK_API_KEY);
         if (success) {
             ESP_LOGI(TAG, "POST ENVIADO COM SUCESSO!");
+
+            // todos piscam 3 vezes verde
+            int count = 3;
+            while (count > 0) {
+                set_led1_color(0, 1, 0);
+                set_led2_color(0, 1, 0);
+                set_led3_color(0, 1, 0);
+                vTaskDelay(pdMS_TO_TICKS(500));
+                count--;
+                set_led1_color(0, 0, 0);
+                set_led2_color(0, 0, 0);
+                set_led3_color(0, 0, 0);
+                vTaskDelay(pdMS_TO_TICKS(500));
+
+            }
+            restore_leds_state();
             return;
         }
         ESP_LOGI(TAG, "FALHA AO ENVIAR POST");
         // Led amarelo (falha no post)
-        set_led_color(1, 1, 0);
+        int count = 3;
+        while (count > 0) {
+            set_led1_color(1, 1, 0);
+            set_led2_color(1, 1, 0);
+            set_led3_color(1, 1, 0);
+            vTaskDelay(pdMS_TO_TICKS(1200));
+            count--;
+            set_led1_color(0, 0, 0);
+            set_led2_color(0, 0, 0);
+            set_led3_color(0, 0, 0);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        restore_leds_state();
     }
 }
 
@@ -421,6 +576,9 @@ static bool checkSystemHealth() {
     if (current_voltage < BATTERY_MIN_VOLTAGE && current_voltage > 500) {
         ESP_LOGE(TAG, "Critical voltage! Entering permanent Deep sleep.");
         WifiManager::deinit();
+        set_led1_color(0, 0, 0);
+        set_led2_color(0, 0, 0);
+        set_led3_color(0, 0, 0);
         esp_deep_sleep_start(); // no wakeup = sleep forever
     }
     
@@ -462,7 +620,9 @@ static bool checkSystemHealth() {
                 ESP_LOGI(TAG, "Waiting for firmware estabilization (%lld seconds restantes)...", time_remaining / 1000000.0);
 
                 // Turn purple to indicate Validation Timer
-                set_led_color(1, 0, 1);
+                set_led1_color(1, 0, 1);
+                set_led2_color(1, 0, 1);
+                set_led3_color(1, 0, 1);
                 int64_t wait_start = esp_timer_get_time();
                 while ((esp_timer_get_time() - wait_start) < time_remaining) {
                     WatchdogManager::reset();
@@ -482,7 +642,9 @@ static bool checkSystemHealth() {
             valid_firmware = true;
         }
     }
-    set_led_color(0, 0, 0);
+    set_led1_color(0, 0, 0);
+    set_led1_color(0, 0, 0);
+    set_led1_color(0, 0, 0);
     return (wifi_valid && valid_firmware);
 } 
 
@@ -536,7 +698,8 @@ static void standard_cycle() {
         // Check if the backup ssid connected
         if (WifiManager::isConnected()) connected = true;
     } else {
-        // If connected, restart the failure counter 
+        // If connected, restart the failure counter and turn the led on
+
         int8_t streak = 0;
         nvs_get_i8(my_nvs_handle, "fail_streak", &streak);
         if (streak > 0) {
@@ -553,15 +716,22 @@ static void standard_cycle() {
 
     bool system_health = checkSystemHealth(); 
 
+    update_status_leds();
+
     // POST or SD?
     if (WifiManager::isConnected() && system_health) {
-        set_led_color(0, 1, 0);
         sendData(); // send HTTP
     } else {
         ESP_LOGW(TAG, "HEALTH OR CONNECTION FAILED, ENTERING MICRO SD LOGIC.");
-
-        // Led turn red, health check failed
-        set_led_color(1, 1, 0);
+        // All Leds turn yellow, health check failed
+        set_led1_color(1, 1, 0);
+        set_led2_color(1, 1, 0);
+        set_led3_color(1, 1, 0);
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        set_led1_color(0, 0, 0);
+        set_led2_color(0, 0, 0);
+        set_led3_color(0, 0, 0);
+        restore_leds_state();
         saveDataOffline(); // save in MicroSD
     }
 }
@@ -685,6 +855,7 @@ static void check_backup_fallback() {
 static void saveDataOffline() {
     currentProcess = "SAVE_OFFLINE";
     ESP_LOGW(TAG, ">> MODO OFFLINE: Salvando dados no MicroSD (Simulação) <<");
+    return;
     // TODO: Implementar lógica real do SD aqui
     // mount_sd();
     // append_file("/sd/log.txt", json...);
@@ -724,7 +895,10 @@ extern "C" void app_main(void)
 
 
     WifiManager::stop();
-    set_led_color(0, 0, 0);
+    set_led1_color(0, 0, 0);
+    set_led2_color(0, 0, 0);
+    set_led3_color(0, 0, 0);
+       
 
     // Sleep for 60 seconds
     esp_sleep_enable_timer_wakeup(60000000); 
