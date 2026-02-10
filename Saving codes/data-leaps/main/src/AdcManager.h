@@ -1,9 +1,9 @@
-#ifndef ADCSERVICE_H
-#define ADCSERVICE_H
+#ifndef ADCMANAGER_H
+#define ADCMANAGER_H
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 
-class AdcService {
+class AdcManager {
 public:
     static void init();
     static void configChannel(adc_channel_t channel); // Pin config
