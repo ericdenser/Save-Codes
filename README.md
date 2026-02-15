@@ -1,150 +1,163 @@
-# Installing ESP-IDF Extension on VSCode
+1. spring initalzr (Spring web, Oauth2 Server)
+2. `POM`:
 
-> This guide explains how to install and use **ESP-IDF v5.5.2** on a Debian-based Linux workstation.
-> For this tutorial, you wont need permissions to run commands as sudo.
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+</dependency>
 
----
+3. `YAML: `
 
-## 📌 Prerequisites
+server:
+  port: 8082  # Porta diferente do BFF (8081) e Keycloak (8080)
 
-- **VSCode**: Ensure you have Visual Studio Code installed on your machine. (If not, check the [tutorial]())
-
----
-
-## 1. Installing Extension in VSCode
-
-1. Open VSCode and go to the Extensions section (`Ctrl + Shift + X`).
-2. Install the following extension: ESP-IDF
-- ⚠️ Note: After installing, a setup window might appear. Close it or ignore it for now. Do not continue with the automatic configuration yet.
-
-## 2. Installing Miniconda
-
-ESP-IDF requires a compatible Python version. We use **Miniconda** to manage everything locally.
-
-```bash
-mkdir -p ~/miniconda3
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
-bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
-~/miniconda3/bin/conda init bash
-```
-
-- Open a **new terminal** after this step.
-
----
-
-## 3. Creating the Conda Environment (Safe Setup)
-
-Required build tools are installed **inside Conda**.
-
-```bash
-conda create -n esp-idf python=3.11 pip cmake ninja git -y
-conda activate esp-idf
-```
-
-This environment will be used by the ESP-IDF.
-
----
-
-## 4. Downloading ESP-IDF
-
-- Note: The command below installs the version that was the most recent at the time this tutorial was written. To ensure you have the newest version, check the [Espressif repository]() and update the version tag if needed.
-```bash
-mkdir -p ~/esp
-cd ~/esp
-git clone -b v5.5.2 --recursive https://github.com/espressif/esp-idf.git esp-idf-v5.5.2
-cd esp-idf-v5.5.2
-```
-
----
-
-## 5. Installing ESP-IDF Tools
-
-```bash
-./install.sh
-```
-
-This step installs all required toolchains and creates the internal ESP-IDF Python environment under `.espressif/`.
-
----
-
-## 6. Configuring the VSCode Extension
-
-Now that everything is installed manually, we need to tell VS Code where to look.
-
-1. Open VS Code.
-
-2. Press F1 (or Ctrl+Shift+P) to open the Command Palette.
-
-3. Type and select: `ESP-IDF: Configure ESP-IDF extension`.
-
-4. Select the option: `USE EXISTING SETUP`.
-
-5. Click "Select ESP-IDF in system."
-
-You will see a window like this: 
-
-
-### Fill the paths as follows:
-
-- ESP-IDF Path: Select the folder where you downloaded esp-idf (if youre following the same paths, it should be here ~/esp/esp-idf-v5.5.2).
-
-- Python Path: Select the Python interpreter from your Conda environment. (It usually appears as .../miniconda3/envs/esp-idf/bin/python).
-
----
-
-## ✅ Verification
-
-After the install is complete, a home page window will appear, select `Create project`.
-If the page isnt opening, go to the Command Palette again and search for `ESP-IDF: New Project`.
-
-Both ways will lead you to this page:
+spring:
+  application:
+    name: resource-server
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # O Spring vai bater nessa URL ao iniciar para baixar as chaves públicas (JWK Set)
+          # Ele valida se o token foi assinado por ESSE emissor.
+          issuer-uri: http://localhost:8080/realms/bff-spring
 
 
 
+4. package com.example.backend.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            //Desnecessário para APIs Rest Stateless
+            .csrf(csrf -> csrf.disable())
+
+            // Define que NÃO haverá sessão (Não guarda estado no servidor)
+            .sessionManagement(session -> session
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            )
+
+            //Regras de acesso
+            .authorizeHttpRequests(authorize -> authorize
+                .anyRequest().authenticated() // Tudo precisa de token
+            )
+
+            //Habilita validação de Token JWT
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> {}) // Usa o padrão do Spring (valida assinatura e expiração)
+            );
+
+        return http.build();
+    }
+}
+
+5. package com.example.backend.controller;
+
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+@RestController
+public class TesteController {
+
+    @GetMapping("/teste")
+    public Map<String, String> listarTarefas(@AuthenticationPrincipal Jwt token) {
+        
+        String usuario = token.getClaim("preferred_username");
+        String email = token.getClaim("email");
+
+        return Map.of(
+            "status", "Sucesso! Você acessou o Backend.",
+            "usuario", usuario,
+            "email", email,
+            "token_id", token.getId()
+        );
+    }
+}package com.example.backend.controller;
+
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+@RestController
+public class TesteController {
+
+    @GetMapping("/teste")
+    public Map<String, String> listarTarefas(@AuthenticationPrincipal Jwt token) {
+        
+        String usuario = token.getClaim("preferred_username");
+        String email = token.getClaim("email");
+
+        return Map.of(
+            "status", "Sucesso! Você acessou o Backend.",
+            "usuario", usuario,
+            "email", email,
+            "token_id", token.getId()
+        );
+    }
+}
+
+# NO BFF:
+6.
+
+package com.example.bff.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestClient;
+
+@Configuration
+public class WebClientConfig {
+
+    @Bean
+    public RestClient.Builder restClientBuilder() {
+        return RestClient.builder();
+    }
 
 
-Now open Command Pallete and search for "ESP-IDF: Open ESP-IDF Terminal".
-A new terminal should appear, type the command below on it.
+    @Bean
+    public RestClient restClient(RestClient.Builder builder) {
+        
+        return builder.build();
+    }
+}
 
-```bash
-idf.py --version
-```
+7. @GetMapping("/backend")
+    public String buscarTarefasNoBackend(
+            // Essa anotação mágica faz o Spring ir no Redis e pegar os tokens do usuário atual!
+            @RegisteredOAuth2AuthorizedClient("keycloak") OAuth2AuthorizedClient clienteAutorizado
+    ) {
+        // Pegamos o Access Token
+        String tokenJwt = clienteAutorizado.getAccessToken().getTokenValue();
 
-If the command is recognized, the setup is complete. If not, check the [Common Issue](CommonIssue) section.
+        // Fazemos a requisição para a porta 8082 repassando o token
+        return restClient.get()
+                .uri("http://localhost:8082/teste")
+                .header("Authorization", "Bearer " + tokenJwt)
+                .retrieve()
+                .body(String.class);
+    }
 
-## Testing the Project
+# CONFIGURANDO LOGOUT
 
-You can now run this command for building the example project, flashing it into your device and monitoring the serial communication. Dont forget to have your esp plugged.
-```bash
-idf.py build flash monitor
-```
-
----
-
-## Common Issue
-
-When VS Code is opened from outside our conda environment, the integrated terminal **does not inherit** the ESP-IDF settings.
-
-If you see:
-
-```text
-idf.py: command not found
-```
-
-Run the following **inside the VS Code terminal**:
-
-```bash
-source ~/esp/esp-idf-v5.5.2/export.sh
-```
-- Change the path of the `export.sh` file if needed.
-
----
-
-## 5. Notes
-
-* No system packages or sudo permissions are required
-* Do **not** rely on internal `.espressif/python_env/...` paths in documentation
-
----
-
-## References
