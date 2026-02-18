@@ -1,3 +1,7 @@
+rbac (criacao e gerenciamento de roles(papeis) e permissoes dessa role dentro da aplicacao, pois a aplicacao conhece tudo
+(token bate no rbac e rbac diz oque pode e nao pode)
+
+
 comandos redis:
 
 docker exec -it "id" redis-cli
