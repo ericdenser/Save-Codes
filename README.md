@@ -1,3 +1,29 @@
+comandos redis:
+
+docker exec -it "id" redis-cli
+
+keys *
+
+hkeys "id"
+
+ttl "id"
+
+comandos postgre:
+---
+docker exec -it security-postgres-1 psql -U keycloak (abrir db)
+\l (listar)
+\q (sair)
+---
+docker exec -it "id" psql -U keycloak -c "CREATE DATABASE resource_db;" (cria db)
+
+INFOS QUE NAO PODE ESQUECER:
+
+1. usar sub para indentificar usuario (uuid)
+2. jwt do redis so muda quando expira o token
+3. adicao de conversor de role e controle de token na filterchain do backend
+4. "/favicon.ico", "/error" no permitAll, pois o navegador pede, mas o spring nao encontra o favicon (erro 404, tenta redirecionar internamente para a rota /error mas a /error é rota privada, que força o keycloak a relogar e ficar criando tokens novos)
+
+
 1. spring initalzr (Spring web, Oauth2 Server)
 2. `POM`:
 
