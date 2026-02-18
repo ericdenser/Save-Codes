@@ -1,0 +1,21 @@
+server:
+  port: 8082 # <--- Adicione estas duas linhas no topo!
+
+spring:
+  application:
+    name: resource-server
+  datasource:
+    # Agora aponta para o novo banco recém-criado!
+    url: jdbc:postgresql://localhost:5432/resource_db
+    username: keycloak # O usuário dono do banco continua o mesmo
+    password: password # A senha configurada no Docker Compose
+  jpa:
+    hibernate:
+      ddl-auto: create # O Hibernate vai criar as tabelas automaticamente para você
+    show-sql: true
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/realms/bff
