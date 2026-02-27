@@ -45,8 +45,9 @@ It will lead you to this page:
 ![Image01](LearningPaths/images/_protectingApi__keycloak_roles.png)
 
 4. Click on "Create Role"
-5. It will open a window asking the "Role Name" and "Description", name it as ADMIN(optional) 
+5. It will open a window asking the "Role Name" and "Description", name it as ADMIN 
 6. Click on save and the Role is successfully created.
+7. Create another Role named USER.
 
 ### Assigning the Role to a User
 
@@ -57,9 +58,10 @@ It will lead you to this page:
 
 It opens this page, click on "Filter by clients" and change for "Filter by realm role"
 
-![Image03](LearningPaths/images/_protectingApi__keycloak_assign_role.png)
+![Image02](LearningPaths/images/_protectingApi__keycloak_assign_role.png)
 
-5. It will open a list of roles, select the one you created -> Assign.
+5. It will open a list of roles, select ADMIN -> Assign.
+6. Do the same steps again and assign the role USER to another Client (Create a new one if needed)
 
 ### Applying the Role on Spring
 
@@ -200,9 +202,29 @@ Create 2 new methods inside your Controller, one will be avaiable for your role,
         return "You have ADMIN role, welcome sir!";
     }
 ```
+- Testing USER requests:
 
+1. Run your BFF and make login with the client that you assigned as **USER**. 
+2. Open ThunderClient on VsCode (Command Palette -> ThunderClinet new Request)
+3. Set the request as a GET method to the /avatar endpoint on your API.
+4. Attach the Access Token on Auth -> Bearer and paste it there (You can get it with the /compareTokens controller we created last tutorial)
 
+Expected Result:
+![Image03](protectingApi_AuthorizationUSER200)
 
+5. Change the route from /avatar to /admin
+
+Expected Result:
+![Image04](protectingApi_AuthorizationUSER403)
+
+- Testing ADMIN requests:
+
+1. Run the same steps above but now login with the client you assigned as **ADMIN**.
+2. Get the Access Token of the new client, attach on ThunderClient.
+3. Try /admin route
+
+Expected Result:
+![Image05](protectingApi_AuthorizationADMIN200)
 
 --- 
 
