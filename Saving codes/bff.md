@@ -1,364 +1,629 @@
+> [Learning](../README.md)>[Learning Paths](./README.md)>Protecting the API
 
-# Architecture with BFF (Backend For Frontend)
-
-Before starting to write the code, it is essential to understand the architecture we are going to implement and the role of each element in the application.
-
-> [!Note] Keycloak 
-> An open-source identity and access management platform responsible for handling authentication for the entire project.
+# Protecting the API
 
 
-> [!Warning] Redis 
-> This in-memory database will be used to store the JWT (the Access Token provided by Keycloak after a successful user authentication).
+# Prerequisites
 
-> [!Important] BFF (Backend For Frontend) 
-> A fundamental component in the security architecture, acting as an intermediary between the Backend (API), the Frontend, and Keycloak.
+1. Java and Maven configured in your development environment.
 
-## Architecture
+    - [Install and configure Java and Maven in a Windows box.](java/Preparing%20a%20Java%20development%20environment%20on%20Windows.md?ref_type=heads)
+    - [Install and configure Java and Maven in a Debian Linux box.](java/SettingUpDebianBoxForJavaDevelopment.md?ref_type=heads)
+    - [Install and configure Java and Maven in a workstation in MackLEAPS facilities.](java/SettingUpJavaDevelopmentEnvironmentInMackleapsWorkstations.md)
 
-When the user accesses a protected page, the BFF (through the Controller class) redirects the user to Keycloak for login. After successful authentication, it receives the JWT and stores it in Redis, generating a random session ID in return, which is sent to the frontend via secure cookies. This ensures that the browser never handles the real token, preventing XSS attacks. On subsequent requests, the BFF simply exchanges this session ID for the original JWT to authenticate requests against the internal microservices.
+2. Visual Studio Code installed in your development enviromnment with Java and Spring Boot extensions configured.
 
-Check out the architectural structure below:
+    - [Install Visual Studio Code in a Windows box.](ide/InstallVSCodeInWindows.md)
+    - [Install Visual Studio Code in a Debian Linux box.](ide/InstallVSCode-Debian.md)
+  
+    
+3. [Install Visual Studio Code extensions for Java development.](ide/VSCodeExtensionsForJava.md)
 
-```plantuml
-@startuml
-autonumber
-skinparam Style strictuml
-skinparam sequenceMessageAlign center
+4. [Docker installed](docker/DockerOnUbuntu.md)
 
-actor "Usuário" as User
-participant "SPA" as SPA
-participant "BFF" as BFF
-participant "Session Menager \n Redis" as Redis
-participant "Keycloak" as Keycloak
-
-
-== Not Authenticated ==
-
-User -> SPA: Access a protected page.
-SPA -> BFF: Access protected route
-
-activate BFF 
-BFF -> Redis: Check if there is an open session.
-activate Redis
-Redis -->> BFF: It returns that there is no open session.
-deactivate Redis
-BFF -->> SPA: Redirects to Keycloak
-deactivate BFF
-
-activate SPA
-SPA -> Keycloak: Redirect to Keycloak login. 
-deactivate SPA
-
-activate Keycloak
-Keycloak -->> User: Ask for credentials 
-User -> Keycloak: Provide credentials
-Keycloak -> Keycloak: Validates credentials 
+5. [Knowledge about Spring Boot](LearningPaths/MyFirstJavaRestAPI.md)
 
 
 
-Keycloak -->> SPA: Redirects the Authorization Code embedded in the URL to the SPA.
-deactivate Keycloak
-activate SPA
-SPA -> BFF: Redirects to BFF with the Authorization Code
-deactivate SPA
+## BFF (Backend For Frontend)
 
-activate BFF
-BFF -> Keycloak: Validate the Authorization Code with Keycloak
-deactivate BFF
+The BFF will serve as an intermediary between the backend and the frontend. This way, we can implement Keycloak within the BFF so that the frontend does not have access to Access Tokens. To achieve this, we will use [Spring Initializr](https://start.spring.io/) to create the Spring Boot application for our BFF.
 
-activate Keycloak
-Keycloak -> BFF: Returns the JWT to the BFF
-deactivate Keycloak
 
-activate BFF 
-BFF -> Redis: Register session in Redis 
-BFF -->> SPA: Set-Cookie: SESSION_ID 
-deactivate BFF
 
-activate SPA
+1.  Parameters to create the project:
 
-SPA -->> User: Returns content from the protected page.
+- Project: Maven
+- Language: Java
+- Spring Boot: 4.0.2
+- Project Metadata:
+- Group br.mackenzie.mackleaps
+- Artifact: BFF
+- Name: BFF
+- Packaging: Jar
+- Configuration: YAML
+
+2.  Select the following dependecies:
+
+- Spring Web
+- OAuth2 Client
+- Spring Security
+- Spring Data Redis (Access+Driver)
+
+For more details about Spring project initialization, refer to: [Create a Spring Boot Java Project](java/CreateASpringBootJavaProject.md).
+
+After generating the project, a ZIP file will be downloaded to your machine. Unzip it and open the project in VS Code.
+
+Make sure you have the required VS Code extensions for Java backend development by following this guide: [Install Visual Studio Code Extensions for Java Development](ide/VSCodeExtensionsForJava.md).
+
+3.  Before proceeding, it will be necessary to add some dependencies manually - Open the pom.xml file and add the following dependencies:* 
+
+
+```xml
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-oauth2-client</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework.session</groupId>
+        <artifactId>spring-session-data-redis</artifactId>
+    </dependency>
+
 ```
+
+4.  Make sure the pom.xml file looks like this:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.0.2</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>br.mackenzie.mackeleaps</groupId>
+	<artifactId>BFF</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>BFF</name>
+	<description>Demo project for Spring Boot</description>
+	<url/>
+	<licenses>
+		<license/>
+	</licenses>
+	<developers>
+		<developer/>
+	</developers>
+	<scm>
+		<connection/>
+		<developerConnection/>
+		<tag/>
+		<url/>
+	</scm>
+	<properties>
+		<java.version>21</java.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security-oauth2-client</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security-oauth2-client-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-client</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.session</groupId>
+			<artifactId>spring-session-data-redis</artifactId>
+		</dependency>
+
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
+```
+
+
+
+## Docker Containers
+
+The BFF will run in terminal. The Keycloak, Postgres and Redis, will run in Docker containers. To set this up, create a file in the root of your project called `docker-compose.yml`. This file will contain the configurations for the container that will run Keycloak (authentication system), Redis (database that will store access tokens), and Postgres (database that will handle data persistence for Keycloak).
+
+> [!note]
+> Since we are using Docker to run Keycloak, it is important to configure data persistence for Keycloak — that is, use a database (in this case, PostgreSQL) to store Keycloak’s configuration and users. This ensures that if the container is stopped, Keycloak’s settings will not be lost.
+
+To achieve this, it is necessary to configure a file called `docker-compose.yml`, which contains the Docker settings, including an element called volumes. This is where Keycloak’s configuration data will be stored.
+
+5.  Create a folder in the project root called "volumes". Inside this folder, create two additional folders named `"postgres-data"` and `"keycloak-data"`.
+
+6.  Create a file in the project root called `"docker-compose.yml"` with the following content: 
+
+```yaml
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./volumes/postgres-data:/var/lib/postgresql/data
+ 
+ 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+ 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1.2
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: password
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./volumes/keycloak-data:/opt/keycloak/themes
+    depends_on:
+      - postgres
+```
+
+7.  After creating these folders, the project structure will be similar to:
+
+```bash
+BFF/
+├── .mvn/
+├── src/
+├── target/
+├── volumes/
+│   ├── keycloak-data/
+│   └── postgres-data/
+├── .gitattributes
+├── .gitignore
+├── docker-compose.yml
+├── HELP.md
+├── mvnw
+├── mvnw.cmd
+└── pom.xml
+
+```
+
+> [!note] 
+> It may take a while to start the Keycloak page on localhost.
+ 
+## Keycloak
+
+Now let’s configure Keycloak, creating a Realm (space that will manage a group of Clients and Users), a Client (represents applications and services that can access Keycloak to authenticate and authorize User) and a User.
+
+To access Keycloak it is necessary to run the Docker containers that we just configured.
+
+1.  In the terminal enter the project folder
+
+2.  Run the command: 
+``` bash 
+docker compose up -d
+```
+3.  To verify that all containers started, run the command: 
+```bash
+docker ps
+```
+
+To configure Keycloak:
+4.  In your browser access the route http://localhost:8080
+
+5.  Enter the credentials: Username: admin / Password: admin
+
+6.  The page http://localhost:8080 may take a few minutes to load.
+
+Configurations
+
+7.  In the upper left corner there will be a tab with the Master realm. Click on the tab, the button "Create realm" will appear. Click it.
+![](LearningPaths/images/1.png)
+
+8.  Create the realm with the name **BFF**
+![](LearningPaths/images/2.png)
+
+Creating a Client
+
+9.  On the left side there are some options, select **Clients**
+
+10. Click the button **Create Client**
+![](LearningPaths/images/3.png)
+
+11. In Client ID and Name enter: **spring-bff**
+![](LearningPaths/images/4.png)
+
+12. Select Client authentication
+![](LearningPaths/images/5.png)
+
+13. Set the URLs according to the image.
+![](LearningPaths/images/6.png)
+
+14. Creating User, on the left side select the User option
+![](LearningPaths/images/7.png)
+
+15. Define the fields as in the image below
+![](LearningPaths/images/8.png)
+
+16. Go to credentials and set the password: **admin**
+![](LearningPaths/images/9.png)
+
+17. Disable the temporary option and click **Save**.
+![](LearningPaths/images/10.png)
+
+## Application.yaml
+
+Now that Keycloak is configured, let's create an `application.yaml` file, which is responsible for configuring the application's properties.
+One of the properties is ***client-secret***, however this property is individual.
+
+1.  Open Keycloak, select the Clients tab, and enter the client we created.
+
+![](LearningPaths/images/x.png)
+
+2.  Select the **Credentials** option, copy the code, and paste it into your `application.yaml`.
+
+![](LearningPaths/images/y.png)
+
+3.  Make sure your `application.yaml` file is formatted as follows:
+
+```yaml
+spring:
+  application:
+    name: bff-project
+ 
+  data:
+    redis:
+      host: localhost
+      port: 6379
+ 
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: spring-bff
+            client-secret: COPY HERE !!!!
+            scope: openid, profile, email
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+        provider:
+          keycloak:
+            issuer-uri: http://localhost:8080/realms/BFF
+  session:
+    store_type: redis
+ 
+server:
+  port: 8081
+ 
+logging:
+  level:
+    org:
+      springframework:
+        security: DEBUG
+        oauth2: DEBUG
+        web:
+          client:
+            RestTemplate: DEBUG
+```
+
+## BffController
+
+Now let's create a Java class called BffController; this class will handle the requests and redirects.
+
+1.  Create the class BffController with the content below.
+
+```java
+package br.mackenzie.mackleaps.BFF.controller;
+
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+
+public class BffController {
+
+    @GetMapping("/protected")
+    public String protectedPag(@AuthenticationPrincipal OidcUser usuario){
+
+        return "Bem-vindo a area segura, " + usuario.getFullName() +
+        "! Seu email é: " + usuario.getEmail() +
+        "Seu TOKEN é: " + usuario.getIdToken().getTokenValue();
+    }
+
+    @GetMapping("/public")
+    public String publicPage() {
+        return "This page is public!";
+    }
+}
+
+```
+
+### About this class  
+* **@RestController**: It indicates that the class is not just a regular class, but a web Resource Controller.
+
+* **@AutheticationPrincipal**: The `@AuthenticationPrincipal` annotation acts as a smart shortcut that extracts the authenticated user directly from the Spring security context and injects it as a parameter into your method, eliminating the need to manually retrieve session or token data; it identifies who is making the request and delivers the user object (such as OidcUser) ready for use, allowing you to access name, email, and permissions.
+
+* **OidcUser**: This indicates that the OpendId Connect protocol is being used; the OidcUser contains the user claims (information) returned by the identity provider (Keycloak).
+
+
+## SecurityConfig
+
+Now let's create another class that will configure Spring Security. Spring Security already has a default configuration, but by creating a `config` class, we will dictate some rules for how Spring should behave.
+
+1.  Create the `SecurityConfig` class with the following content:
+
+```java
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    private final ClientRegistrationRepository clientRegistrationRepository;
+
+    SecurityConfig(ClientRegistrationRepository clientRegistrationRepository){
+        this.clientRegistrationRepository = clientRegistrationRepository;
+    }
+
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            // Disabling CSRF temporarily for initial testing purposes
+            .csrf(csrf -> csrf.disable())
+            
+            // Configuring endpoint access rules
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/public").permitAll() 
+                .anyRequest().authenticated()      
+            )
+
+            // Enabling OAuth2 Login (Redirects to Keycloak when unauthenticated)
+            .oauth2Login(Customizer.withDefaults()) 
+            
+            .logout(logout -> logout
+            .logoutUrl("/logout")
+            .logoutSuccessHandler(oidcLogoutSuccessHandler())
+            .invalidateHttpSession(true)
+            .clearAuthentication(true)
+            .logoutSuccessUrl("/public") 
+            .deleteCookies("SESSION")
+            ); 
+
+        return http.build();
+    }
+
+    private OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler(){
+        OidcClientInitiatedLogoutSuccessHandler successHandler = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+ 
+    successHandler.setPostLogoutRedirectUri("{baseUrl}/public");
+ 
+    return successHandler;
+    }
+}
+```
+
+
+### About this class
+
+SecurityFilterChain: This is the core of Spring Security. It acts as a sequence of "filters" (like security guards) that every incoming HTTP request must pass through before reaching your Controller. If a request fails a filter's rule, it is blocked or redirected.
+
+@Configuration: Tells Spring that this class acts as an instruction manual. During startup, Spring reads this class to set up internal configurations.
+
+@EnableWebSecurity: Activates Spring's security system. It tells Spring to apply the SecurityFilterChain to all incoming HTTP requests.
+
+@Bean: Turns the method's return object into a component managed by the Spring framework.
+
+
+[!WARNING] About CSRF
+In this initial configuration, we explicitly disabled CSRF (.csrf(csrf -> csrf.disable())). Since our BFF uses Cookies to maintain the user's session, disabling CSRF leaves the application vulnerable to Cross-Site Request Forgery attacks. We are doing this temporarily to make our first API tests easier. In a future tutorial about Frontend integration, we will enable CSRF and configure the necessary protections.
+
+
+*  You can learn more about them on the [Spring Documentation](https://docs.spring.io/spring-security/reference/servlet/architecture.html)
+
+
+
+## BffApplication
+
+Another class that is needed to run the application is BffApplication; it serves as a kind of 'main' class.
+
+1.  In the `BffApplication.java` with the following content:
+
+```java
+package br.mackenzie.mackleaps.BFF;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.session.data.redis.config.annotation.web.http.EnableRedisHttpSession;
+
+@EnableRedisHttpSession
+@SpringBootApplication
+public class BffApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(BffApplication.class, args);
+	}
+
+}
+
+```
+
+## Running the Project
+
+To run the project:
+
+1.  Open the terminal and navigate to the project folder.
+2.  To run Maven, execute the command: 
+
+```bash
+mvn spring-boot:run
+```
+3.  Access the route `http://localhost:8081/` to enter the unprotected route.
+4.  Access the route `http://localhost:8081/protected` to enter a page with Keycloak validation.
 
 ---
 
-# About Tokens and IDs
+## Implementing the OIDC Logout
 
-## JWT
+Now that you successfully authenticated and accessed the protected route, you might notice that there is no way to log out. Closing the browser tab won't kill your Keycloak session entirely. 
 
-A JWT (JSON Web Token) is a JSON object issued by Keycloak (the Identity Provider) after successfully authenticating a user's credentials.
+To properly log out in a Single Sign-On (SSO) architecture, we must perform a **RP-Initiated Logout**. This means our BFF must not only destroy the local Spring session (Redis) but also redirect the user to Keycloak to destroy the global SSO session.
 
-A JWT consists of three parts: the Header, the Payload, and the Signature. In our architecture, the BFF (Backend-for-Frontend) uses this token whenever it needs to access the Backend. The BFF attaches the JWT to the request header as follows: `Authorization: Bearer <token>`.
+### 1. Configuring Keycloak Logout URL
+Before touching the code, we need to authorize our frontend to be redirected back after Keycloak finishes the logout process.
 
-The Backend receives the token, validates its signature, and identifies the user immediately—eliminating the need to query the database (Redis) for user identity on every request.
-Important 
+1. Open your Keycloak admin console (`http://localhost:8080`).
+2. Go to **Clients** -> select `spring-bff`.
+3. Scroll down to the **Logout settings** section.
+4. In the **Valid post logout redirect URIs** field, add `http://localhost:8081/public`.
+5. Click **Save**.
 
-#### About JWT structure:
-* **Header:** Tells the receiving system how to read and process the token. It typically contains:
-  * **Contents:** User profile data (name, email, preferred username).
+### 2. Updating SecurityConfig
 
-  * **typ (Type):**  The type of object.
+Now, let's update our `SecurityConfig` class to handle the logout flow. We will add a `ClientRegistrationRepository` to build the correct Keycloak URLs and configure the `.logout()` chain.
 
-  * **alg (Algorithm):** The hashing algorithm used to create the signature.
+Update your `SecurityConfig.java` to match this:
 
-* **Payload:** Contains the Claims. These are the user data fields, such as username, roles, realms, and expiration time.
-* **Signature:**
-Ensures the token was not tampered with during transit between Keycloak and your application.
+```java
+package br.mackenzie.mackleaps.BFF.config;
 
-#### How it Works
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.web.SecurityFilterChain;
 
-1) **Generation:** Keycloak takes the Header and the Payload.
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
 
-2) **Signing:** It uses a Private Key (known only to Keycloak) and the algorithm specified in the Header to generate a unique hash.
+    // Injecting the repository that holds our Keycloak settings from application.yaml
+    private final ClientRegistrationRepository clientRegistrationRepository;
 
-3) **Validation:** When your application receives the token, it uses Keycloak’s Public Key to verify if the signature matches the content. If the data was changed by even a single character, the signature becomes invalid.
+    public SecurityConfig(ClientRegistrationRepository clientRegistrationRepository){
+        this.clientRegistrationRepository = clientRegistrationRepository;
+    }
 
-#### Example
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(csrf -> csrf.disable())
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/public").permitAll() 
+                .anyRequest().authenticated()       
+            )
+            .oauth2Login(Customizer.withDefaults()) 
+            
+            // NEW LOGOUT CONFIGURATION
+            .logout(logout -> logout
+                .logoutUrl("/logout") // The endpoint that triggers the logout process
+                .invalidateHttpSession(true) // 1. Destroys the local Spring session (Redis)
+                .clearAuthentication(true) // 2. Clears the security context
+                .deleteCookies("SESSION") // 3. Commands the browser to delete the Session Cookie
+                .logoutSuccessHandler(oidcLogoutSuccessHandler()) // 4. Redirects to Keycloak
+            ); 
 
-![Image01](../images/Jwt.io.png)
+        return http.build();
+    }
 
-## IDs
-
-An ID is simply a cryptographically secure random string of characters. Unlike a JWT, an ID does not contain any data within itself. It acts purely as a pointer, a reference, or a "claim check" ticket.
-
-In our architecture, the BFF generates a Session ID (using Spring Session and Redis) and sends it to the Frontend (Vue.js) via a secure, `HttpOnly` cookie. Because it contains no data, it is useless to an attacker trying to decode it, and the frontend cannot extract user information from it.
-
-#### How it Works
-
-1) **Generation:** When a user authenticates, the server (BFF) generates a random, unique string (the ID).
-2) **Storage:** The server saves the user's sensitive data (like the Keycloak JWTs, user roles, and security context) into a database, in our case, **Redis**. It uses the generated ID as the primary key for this data.
-3) **Delivery:** The server sends only the ID back to the client's browser as a Cookie.
-4) **Validation:** On every subsequent request, the browser sends the ID back to the server. The server must query Redis using this ID to retrieve the actual user data and JWTs. If the ID is not found in Redis, the session is considered invalid or expired.
-
----
-
-## Token vs. ID: What is the difference?
-
-To summarize the core architectural difference:
-
-| Feature | JWT (Token) | ID |
-| :--- | :--- | :--- |
-| **Data Storage** | Contains the actual user data inside its payload. | Contains absolutely no data. |
-| **Validation** | Mathematically validated using cryptographic public keys. | Validated by querying a database. |
-| **Database Lookup** | Not required (Stateless). | Mandatory on every request (Stateful). |
-| **Where we use it** | Between the BFF and the Backend API. | Between the Frontend (Vue) and the BFF. |
-
-
-
----
-
-## The Anatomy of a BFF Session
-
-When a user successfully logs in, our architecture handles an ecosystem of **five distinct tokens and IDs**. 
-
-### From Keycloak 
-When the BFF authenticates with Keycloak, it receives three distinct JWTs:
-
-* **1. ID Token:** A JWT focused on answering *"Who is this user?"*.
-  * **Contents:** User profile data (name, email, preferred username).
-  * **Usage:** The BFF uses this to extract the user's name to display on the frontend screen. It is **never** sent to the Backend API.
-* **2. Access Token:** A JWT focused on answering *"What is this user allowed to do?"*.
-  * **Contents:** Permissions, Roles (e.g., `ROLE_USER`, `ROLE_ADMIN`).
-  * **Usage:** The BFF injects this token into the `Authorization: Bearer <token>` header every time it makes a request to our Resource Server (Backend 8082).
- * **3. Refresh Token:** A long-lived token (it needs to be more than the others).
-   * **Usage:** When the short-lived Access Token expires, the Spring Boot BFF automatically catches the error, sends the Refresh Token to Keycloak in the background, and requests a brand new Access Token. The user remains logged in without noticing anything.
-
-### From BFF 
-Because of the BFF pattern rules, **the browser cannot have access to the Keycloak JWTs**. So, what does the BFF send to the frontend?
-
-* **4. SESSION ID:**  An string generated by the BFF.
-  * **Usage:** The BFF takes the 3 Keycloak JWTs mentioned above, serializes them, and locks them inside **Redis**. It then sends the Session ID to the browser inside an `HttpOnly` cookie. The browser automatically attaches it to every request made to the BFF. The BFF then goes to Redis, presents this ID, Redis retrieve the saved Access Token, and BFF uses it to communicate with the API.
-* **5. XSRF-TOKEN:** A secondary cookie sent by the BFF to prevent Cross-Site Request Forgery (CSRF) attacks.
-  * **Usage:** Because our frontend relies on cookies for the session, a malicious site could trick the browser into sending those cookies. To prevent this, the BFF sends the `XSRF-TOKEN` cookie which is attached to a custom HTTP Header (`X-XSRF-TOKEN`) on every POST/PUT/DELETE request. The BFF checks if the header matches the cookie. A hacker's site cannot read the cookie, so it cannot forge the header, making the attack impossible.
-
-
-### What exactly goes into Redis?
-
-If you inspect the Redis database during an active session (using the `HGETALL` command), you will find the Session ID linked to a massive block of serialized binary data. 
-
-This is the **Java Object Serialization** of the Spring `SecurityContext`. 
-Redis acts as an extension of the BFF's RAM. Inside that binary block, Spring securely stores the user's email, name, and **the actual Keycloak JWTs**. When the user makes a request with their Session ID cookie, the BFF fetches this binary block from Redis, deserializes it, extracts the Access Token, and forwards the request to the Backend API.
-
----
-
-## Application Lifecycles (Sequence Diagrams)
-
-Now that we understand the tokens, let's visualize how they flow through the system in everyday scenarios.
-
-### 1. Successful API Request
-
-This is what happens when a logged-in user with authorization clicks a button to fetch data from the backend (API).
-
-
-```plantuml
-@startuml
-autonumber
-skinparam Style strictuml
-skinparam sequenceMessageAlign center
-
-actor "User" as User
-participant "SPA" as SPA
-participant "BFF" as BFF
-participant "Redis" as Redis
-participant "API" as API
-
-== Authenticated ==
-
-User -> SPA: Interact with SPA
-activate SPA
-SPA -> BFF: GET (Cookie: SESSION_ID)
-deactivate SPA
-activate BFF
-
-BFF -> Redis: Lookup session by SESSION_ID
-activate Redis
-Redis -->> BFF: Session Exists. Returns serialized Security Context (Contain Tokens)
-deactivate Redis
-
-BFF -> BFF: Deserializes Context & Extracts Access Token
-BFF -> API: GET (Header: Authorization: Bearer <Access_Token>)
-activate API
-
-API -> API: Validates JWT Signature (Keycloak public key)
-API -> API: Checks Roles (Authorization)
-API -->> BFF: Returns JSON Data (200 OK)
-deactivate API
-
-BFF -->> SPA: Returns JSON Data (200 OK)
-deactivate BFF
-activate SPA
-SPA -->> User: Show data on screen
-deactivate SPA
-@enduml
+    // Custom method to handle the OIDC Logout Redirect
+    private OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler(){
+        OidcClientInitiatedLogoutSuccessHandler successHandler = 
+            new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+        
+        // Tells Keycloak where to send the user AFTER destroying the SSO session
+        successHandler.setPostLogoutRedirectUri("{baseUrl}/public");
+ 
+        return successHandler;
+    }
+}
 ```
+How the Logout Chain Works
+When the user triggers the /logout endpoint, Spring Security executes these steps in order:
 
-### 2. Access Token expired Path
+Local Destruction: invalidateHttpSession and clearAuthentication wipe out the user's data from the BFF's memory and our Redis database.
 
-This is what happens when a users access token expires.
+Cookie Deletion: deleteCookies("SESSION") ensures the browser throws away its local key.
 
-```plantuml
-@startuml
-autonumber
-skinparam Style strictuml
-skinparam sequenceMessageAlign center
+The Global Redirect: The oidcLogoutSuccessHandler builds a specific URL containing the user's ID Token and redirects the browser to Keycloak. Keycloak receives this, terminates the SSO session (KEYCLOAK_IDENTITY cookie), and redirects the user back to the {baseUrl}/public route.
 
-actor "User" as User
-participant "SPA" as SPA
-participant "BFF" as BFF
-participant "Redis" as Redis
-participant "Keycloak" as Keycloak
-participant "API" as API
+3. Testing the Logout
+Restart your Spring Boot application.
 
-== Authenticated ==
+Go to http://localhost:8081/protected and ensure you are logged in.
 
-User -> SPA: Interact with SPA
-activate SPA
-SPA -> BFF: GET (Cookie: SESSION_ID)
-deactivate SPA
-activate BFF
+In your browser, make a request to http://localhost:8081/logout. (Note: Since we temporarily disabled CSRF, a simple GET request from the browser bar might trigger it, but in production, this must be a POST request).
 
-BFF -> Redis: Lookup session by SESSION_ID
-activate Redis
-Redis -->> BFF: Session Exists. Returns serialized Security Context (Contain Tokens)
-deactivate Redis
-
-BFF -> BFF: Deserializes Context & Extracts Expired Access Token
-BFF -> BFF: Notices that the Access token lifespan expired.
-
-BFF -> Keycloak: POST (refresh_token)
-activate Keycloak
-Keycloak -->> BFF: Returns NEW Access Token & NEW Refresh Token
-deactivate Keycloak
-
-BFF -> Redis: Update Session with NEW Tokens
-BFF -> API: GET (Bearer <NEW_Access_Token>)
-activate API
-API -->> BFF: Returns JSON Data (200 OK)
-deactivate API
-
-BFF -->> SPA: Returns JSON Data (200 OK)
-SPA -> User: Show data on screen
-deactivate BFF
-@enduml
-```
-
-### 3. Access Token and Refresh Token expired path 
-
-This is what happens when both Access and Refresh token expires.
-
-```plantuml
-@startuml
-autonumber
-skinparam Style strictuml
-skinparam sequenceMessageAlign center
-
-actor "User" as User
-participant "SPA" as SPA
-participant "BFF" as BFF
-participant "Redis" as Redis
-participant "Keycloak" as Keycloak
-participant "API" as API
-
-== Authenticated ==
-
-User -> SPA: Interact with SPA
-activate SPA
-SPA -> BFF: GET (Cookie: SESSION_ID)
-deactivate SPA
-activate BFF
-
-BFF -> Redis: Lookup session by SESSION_ID
-activate Redis
-Redis -->> BFF: Session Exists. Returns serialized Security Context (Contain Tokens)
-deactivate Redis
-
-BFF -> BFF: Deserializes Context & Extracts Expired Access Token
-BFF -> BFF: Notices that the Access token lifespan expired.
-
-BFF -> BFF: Notices that the Refresh token lifespan expired too.
-
-note over BFF, Keycloak: BFF cannot renew tokens anymore.
-
-BFF -->> SPA: 401 Unauthorized
-deactivate BFF
-
-SPA -> Browser: Intercepts 401 Error, redirects '/login'
-deactivate SPA
-activate Browser
-
-Browser -> BFF: GET /login
-activate BFF
-BFF -->> Browser: 302 Redirect to Keycloak Auth URL
-deactivate BFF
-
-Browser -> Keycloak: Sends KEYCLOAK_IDENTITY Cookie
-activate Keycloak
-
-note over Keycloak: Validates KEYCLOAK_IDENTITY.\nNotices User's SSO session is still active.\n**Skips Login Screen.**
-
-Keycloak -->> Browser: 302 Redirect back to BFF\n(With NEW Authorization Code)
-deactivate Keycloak
-
-Browser -> BFF: GET /login/oauth2/code/keycloak
-activate BFF
-BFF -> Keycloak: Exchange Code for NEW Tokens (Background)
-activate Keycloak
-Keycloak -->> BFF: Returns NEW Access & Refresh Tokens
-deactivate Keycloak
-
-BFF -> Redis: Save NEW Tokens & update Session
-BFF -->> Browser: 302 Redirect to SPA
-deactivate BFF
-
-Browser -> SPA: Reloads Application
-deactivate Browser
-activate SPA
-SPA -> BFF: GET (Now with valid session)
-@enduml
-```
-
-References:
-
-[site1](https://blog.elest.io/keycloak-token-management-expiration-revocation-and-renewal/)
-
+You will briefly see the Keycloak screen flash (or load) as it destroys the session, and then you will be seamlessly redirected to the /public page!
 
