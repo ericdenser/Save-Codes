@@ -61,11 +61,11 @@ It opens this page, click on "Filter by clients" and change for "Filter by realm
 ![Image02](LearningPaths/images/_protectingApi__keycloak_assign_role.png)
 
 5. It will open a list of roles, select ADMIN -> Assign.
-6. Do the same steps again and assign the role USER to another Client (Create a new one if needed)
+6. Do the same steps again and assign the role USER to another user (Create a new one if needed)
 
 ### Applying the Role on Spring
 
-Now that we have a Role created and assigned to a User, we need to apply the Authorization strategy on the API. Before we write the code, we need to understand a small conflict between Keycloak and Spring Security.
+Now that we have a Role created and assigned to a User, we need to apply the Authorization strategy on the API. Before you write the code, you need to understand a small conflict between Keycloak and Spring Security.
 
 Keycloak stores our roles inside Access Token. If you inspect the token on jwt.io, you will find this:
 
@@ -89,11 +89,11 @@ Keycloak stores our roles inside Access Token. If you inspect the token on jwt.i
   },
 ```
 
-We need to teach Spring how to extract this specific data inside the JWT and convert it into standard Spring Authorities (Roles).
+We have to teach Spring how to extract this specific data inside the JWT and convert it into standard Spring Authorities (Roles).
 
-#### Creating the Role Converter
+### Creating the Role Converter
 
-To fix this, we will create a custom converter. Create a new class called `KeycloakRoleConverte` inside config folder of your API.
+To fix this, we created a custom converter. Create a new class called `KeycloakRoleConverte` inside config folder of your API.
 
 ```java
 package com.example.resource_server.config;
@@ -183,9 +183,10 @@ public class SecurityConfig {
 ```
 Our API is now reading the ROLE from JWT and linking to the current User. Lets test it blocking some endpoints. 
 
-#### Testing
+### Testing 
 
-Create 2 new methods inside your Controller, one will be avaiable for your role, and the other dont. 
+Create 2 new methods inside your API Controller, one will be avaiable for your role, and the other dont. 
+We use the @PreAuthorize annotation to define exactly which roles can access specific methods.
 
 ```java
     // Allowed for USERS and ADMINS
@@ -202,9 +203,14 @@ Create 2 new methods inside your Controller, one will be avaiable for your role,
         return "You have ADMIN role, welcome sir!";
     }
 ```
-- Testing USER requests:
 
-1. Run your BFF and make login with the client that you assigned as **USER**. 
+[!Note] ROLE_ Prefix 
+Spring automatically adds the ROLE_ prefix when evaluating hasRole. Thats why we needed our converter successfully mapping the Keycloak "ADMIN" to "ROLE_ADMIN", so the match will work perfectly.
+
+#### Testing on ThunderClient
+- Testing Unauthorized requests:
+
+1. Run your BFF and make login with the Keycloak user that you assigned with the role **USER**. 
 2. Open ThunderClient on VsCode (Command Palette -> ThunderClinet new Request)
 3. Set the request as a GET method to the /avatar endpoint on your API.
 4. Attach the Access Token on Auth -> Bearer and paste it there (You can get it with the /compareTokens controller we created last tutorial)
@@ -217,143 +223,34 @@ Expected Result:
 Expected Result:
 ![Image04](protectingApi_AuthorizationUSER403)
 
-- Testing ADMIN requests:
+- Testing Authorized requests:
 
-1. Run the same steps above but now login with the client you assigned as **ADMIN**.
-2. Get the Access Token of the new client, attach on ThunderClient.
+1. Run the same steps above but now login with the user you assigned with the role **ADMIN**.
+2. Get the Access Token of the new user, attach on ThunderClient.
 3. Try /admin route
 
 Expected Result:
 ![Image05](protectingApi_AuthorizationADMIN200)
 
---- 
+#### Testing BFF x API
 
-## Connecting BFF And API
+Run both your BFF and API applications. 
+> ![Note] Check your BFF Controller
+> Make sure you have these 2 controllers on your BFF, 1 requesting to /avatar and other to /admin
 
-On this step, we finally connect our BFF requests to our API, basically the same thing we were already testing on ThunderClient, but now the BFF will take over.
+- Testing Authorized requests:
+1. Open your browser and navigate to your BFF route that calls the API's /admin.
+2. Login using the Keycloak User to which you assigned the ADMIN role.
+3. Result: You should see the message:  "You have ADMIN role, welcome sir!" (HTTP 200 OK).
 
-First thing we have to create is our `RestClient` configuration class, so then our BFF server can make requests to the API. Open your BFF and copy/paste the class below on the `config` folder:
+- Testing Unauthorized requests:
+1. Log out.
+2. Login using a different Keycloak User (one that does NOT have the ADMIN role).
+3. Try to access the same endpoint.
+4. Result: The system will reject the request. You will receive a 403 Forbidden error.
 
-```java
-package com.example.demo.config;
+**Congratulations! Your API is now fully protected with robust, scalable Role-Based Access Control integrated perfectly with Keycloak.**
 
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
-import org.springframework.web.client.RestClient;
-
-@Configuration
-public class RestClientConfig {
-
-    @Bean
-    public RestClient restClient(OAuth2AuthorizedClientManager authorizedClientManager) {
-        
-        return RestClient.builder()
-            .requestInterceptor(new TokenRelayInterceptor(authorizedClientManager))
-            .build();
-             
-    }
-}
-``` 
-
-- OAuth2AuthorizedClientManager: This is the core Spring Security component responsible for managing our tokens.
-
-- TokenRelayInterceptor: This is a custom request interceptor that acts as a middleman. Before any request actually leaves our BFF to hit the API, this interceptor asks the manager for the current valid Access Token, and inject it into the header, just like we were doing on the ThunderClient.
-
-
-To implement that custom Token Interceptor, create this class on the `config` paste of your BFF project:
-
-```java 
-package com.example.demo.config;
- 
-import org.springframework.http.HttpRequest;
-import org.springframework.http.client.ClientHttpRequestExecution;
-import org.springframework.http.client.ClientHttpRequestInterceptor;
-import org.springframework.http.client.ClientHttpResponse;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.client.OAuth2AuthorizeRequest;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
- 
-import java.io.IOException;
- 
-public class TokenRelayInterceptor implements ClientHttpRequestInterceptor {
- 
-    private final OAuth2AuthorizedClientManager authorizedClientManager;
- 
-    public TokenRelayInterceptor(OAuth2AuthorizedClientManager authorizedClientManager) {
-        this.authorizedClientManager = authorizedClientManager;
-    }
- 
-    @Override
-    public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution) throws IOException {
-        // Who is calling
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
- 
-        // Is a user authenticated via OAuth2?
-        if (authentication instanceof OAuth2AuthenticationToken oauthToken) {
-            
-            // Builds an authorization request asking the Manager for a valid token for this specific client
-            OAuth2AuthorizeRequest authorizeRequest = OAuth2AuthorizeRequest
-                    .withClientRegistrationId(oauthToken.getAuthorizedClientRegistrationId())
-                    .principal(authentication)
-                    .build();
- 
-            // The Manager checks if the token exists and if it hasn't expired (it automatically refreshes it if needed)
-            OAuth2AuthorizedClient authorizedClient = authorizedClientManager.authorize(authorizeRequest);
- 
-            // If a valid token was successfully retrieved, inject it into the Authorization Header
-            if (authorizedClient != null && authorizedClient.getAccessToken() != null) {
-                request.getHeaders().setBearerAuth(authorizedClient.getAccessToken().getTokenValue());
-            }
-        }
- 
-        // Proceed with the original HTTP request execution
-        return execution.execute(request, body);
-    }
-}
-``` 
-
-Now our BFF is ready to talk with the API. Open the bff controller and make these new changes:
-
-```java
-// imports...
-@RestController
-public class BffController {
-
-  private final RestClient restClient;
-
-  public BffController(RestClient restClient) {
-      this.restClient = restClient;
-  }
-
-  @GetMapping("/api")
-  public String testeBackend() {
-
-      return restClient.get()
-              .uri("http://localhost:8082/avatar")
-              .retrieve()
-              .body(String.class);
-  }
-    // other methods...
-
-}
-```
-
-### Testing
-
-Run both BFF/API applications, and follow the next steps:
-
-1. Open our new controller on your browser "localhost:8081/api". (If you dont have an open session, Keycloak login page should appear, make login and it will redirect you back to the /api)
-
-2. The BFF will send our request with the `Access Token`, and if its a valid one, the API returns you the content you wanted to access. In our test, the scenario is /api -> GET -> /avatar.
-
-![Image03](../images/protectingApi_api.png)
-
-> [!Important] Result
-> If you see this content, congratulations! Your BFF is connected to your protected API with authentication filter.
 ---
 ### Next tutorial
 
