@@ -2,6 +2,7 @@
 
 Welcome to the learning path for modern application security. In this module, you will learn how to build and implement a professional, distributed architecture using **Spring Boot**, **Keycloak**, and **Redis**.
 
+![Image01](/roadmap.png)
 ---
 
 ### The Learning Journey
