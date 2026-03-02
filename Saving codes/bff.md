@@ -433,6 +433,11 @@ public class SecurityConfig {
         this.clientRegistrationRepository = clientRegistrationRepository;
     }
 
+	//  By default, Spring Security use an in-memory storage mechanism. This configuration overrides that default to use the HTTP session instead and persist 	in redis
+	@Bean
+    public OAuth2AuthorizedClientRepository authorizedClientRepository() {
+        return new HttpSessionOAuth2AuthorizedClientRepository();
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -447,26 +452,9 @@ public class SecurityConfig {
             )
 
             // Enabling OAuth2 Login (Redirects to Keycloak when unauthenticated)
-            .oauth2Login(Customizer.withDefaults()) 
-            
-            .logout(logout -> logout
-            .logoutUrl("/logout")
-            .logoutSuccessHandler(oidcLogoutSuccessHandler())
-            .invalidateHttpSession(true)
-            .clearAuthentication(true)
-            .logoutSuccessUrl("/public") 
-            .deleteCookies("SESSION")
-            ); 
-
+            .oauth2Login(Customizer.withDefaults()); 
+		
         return http.build();
-    }
-
-    private OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler(){
-        OidcClientInitiatedLogoutSuccessHandler successHandler = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
- 
-    successHandler.setPostLogoutRedirectUri("{baseUrl}/public");
- 
-    return successHandler;
     }
 }
 ```
@@ -487,15 +475,15 @@ SecurityFilterChain: This is the core of Spring Security. It acts as a sequence 
 In this initial configuration, we explicitly disabled CSRF (.csrf(csrf -> csrf.disable())). Since our BFF uses Cookies to maintain the user's session, disabling CSRF leaves the application vulnerable to Cross-Site Request Forgery attacks. We are doing this temporarily to make our first API tests easier. In a future tutorial about Frontend integration, we will enable CSRF and configure the necessary protections.
 
 
-*  You can learn more about them on the [Spring Documentation](https://docs.spring.io/spring-security/reference/servlet/architecture.html)
+*  You can learn more about the filter chain on the [Spring Documentation](https://docs.spring.io/spring-security/reference/servlet/architecture.html)
 
 
 
 ## BffApplication
 
-Another class that is needed to run the application is BffApplication; it serves as a kind of 'main' class.
+Another class that is needed to configure is the BffApplication, it serves as a kind of 'main' class.
 
-1.  In the `BffApplication.java` with the following content:
+1.  In the `BffApplication.java`, add the annotation "@EnableRedisHttpSession", it will create and set up a filter to look for active sessions and work with them on the security context from values stored in Redis.
 
 ```java
 package br.mackenzie.mackleaps.BFF;
