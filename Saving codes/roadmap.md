@@ -1,8 +1,13 @@
-# :map: Roadmap: BFF Architecture & API Security
+# Roadmap: BFF Architecture & API Security
+![Vue.js](https://img.shields.io/badge/Vue.js-3.0-42b983?style=flat-square&logo=vue.js)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.x-6DB33F?style=flat-square&logo=spring)
+![Keycloak](https://img.shields.io/badge/Keycloak-OIDC-0097CE?style=flat-square&logo=keycloak)
+![Redis](https://img.shields.io/badge/Redis-Session-DC382D?style=flat-square&logo=redis)
+
 
 Welcome to the learning path for modern application security. In this module, you will learn how to build and implement a professional, distributed architecture using **Spring Boot**, **Keycloak**, and **Redis**.
 
-![Image01](roadmap.png)
+![Image01](LearningPaths/images/roadmap.png)
 ---
 
 ### The Learning Journey
@@ -31,13 +36,17 @@ Learn the implementation of industry-standard security protocols to manage ident
 
 
 
-#### 4. Advanced Frontend Integration
+#### 4. Frontend Integration
 
 How to apply these backend protections to modern client-side applications.
 
-* **[ProtectingSpa.md](LearningPaths/ArchitectureBFFandKeycloak/ProtectingSpa.md)**: Learn how to connect a **Single Page Application (SPA)**—like React or Vue—to your BFF while ensuring that sensitive security tokens never leave the server.
+* **[ProtectingSpa.md](LearningPaths/ArchitectureBFFandKeycloak/ProtectingSpa.md)**: Learn how to connect a **Single Page Application (SPA)** to your BFF while ensuring that sensitive security tokens never leave the server.
 
+#### 5. Advanced Frontend Integration
 
+How to protect your SPA with advanced security strategies and enable Role-Based views.
+
+* **[ProtectingSpa_Advanced.md](LearningPaths/ArchitectureBFFandKeycloak/ProtectingSpa_Advanced.md)**: Learn how to enable CSRF, handle error codes, add Role-based UI constraints and strengthen your system with HTTP Security Headers.
 ---
 
 ### Key Technologies You Will Master
@@ -51,3 +60,6 @@ How to apply these backend protections to modern client-side applications.
 > [!TIP]
 > **Pro-Tip for Students:**
 > As you read, focus on how the **BFF** acts as a "security vault." Its main job is to keep complex tokens safe in **Redis** while giving the browser a simple, safe session cookie.
+
+
+
