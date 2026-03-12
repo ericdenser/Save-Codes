@@ -20,8 +20,7 @@ export const useAuthStore = defineStore('auth', {
         if (this.isAuthenticated) {
           this.user = { 
             nome: resposta.data.nome, 
-            username: resposta.data.username,
-            roles: resposta.data.roles
+            username: resposta.data.username
           }
         }
       } catch (error) {
