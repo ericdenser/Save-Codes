@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import LoginView from '../views/LoginView.vue'
 import { useAuthStore } from '@/stores/auth'
+import api from '@/services/api'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -8,7 +9,7 @@ const router = createRouter({
     { path: '/', name: 'login', component: LoginView },
     { path: '/tarefas', name: 'tarefas', component: () => import('../views/HomeView.vue') },
     { path: '/perfil', name: 'perfil', component: () => import('../views/UserInfoView.vue') },
-    { path: '/admin', name: 'painel-admin', component: () => import('../views/AdminView.vue'), meta: { requiresRole: 'ROLE_ADMIN'}},
+    { path: '/admin', name: 'painel-admin', component: () => import('../views/AdminView.vue'), meta: { requiresRole: ['ROLE_ADMIN']}},
   ]
 })
 
@@ -26,11 +27,23 @@ router.beforeEach(async (to, from, next) => {
     return next({ name: 'tarefas' })
   } 
   if (to.meta.requiresRole) {
-    const roleExigida = to.meta.requiresRole as string;
-    const hasRole = authStore.user?.roles?.includes(roleExigida);
-    if (!hasRole) {
-      alert('Acesso Negado: Tela exclusiva para Administradores.');
-      return next({ name: 'tarefas' }); // Chuta de volta pra home
+    const requiredRoles = to.meta.requiresRole as string[];
+    try {
+      const rolesParam = requiredRoles.join(',');
+      const response = await api.get(`/check-role?role=${rolesParam}`)
+      const hasRole = response.data.hasRole
+
+      if (!hasRole) {
+        alert('Acesso Negado: You dont have the required role to access this resource.');
+        return next({ name: 'tarefas' })
+      }
+
+    } catch (e) {
+      // Se a requisição falhar
+      console.error("Erro ao validar role no BFF:", e);
+      
+      // bloqueia o acesso aqui também
+      return next({ name: 'tarefas' });
     }
   }
 
