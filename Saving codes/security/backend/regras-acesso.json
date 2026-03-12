@@ -1,0 +1,18 @@
+{
+  "/minhas-tarefas": {
+    "GET": ["ROLE_USER", "ROLE_ADMIN"],
+    "POST": ["ROLE_ADMIN"]
+  },
+  "/admin/todas-tarefas": {
+    "GET": ["ROLE_ADMIN"],
+    "DELETE": ["ROLE_ADMIN"]
+  },
+  "/admin": {
+    "GET": ["ROLE_ADMIN"],
+    "DELETE": ["ROLE_ADMIN"]
+  },
+  "/avatar": {
+    "GET": ["ROLE_USER", "ROLE_ADMIN"],
+    "DELETE": ["ROLE_ADMIN"]
+  }
+}
