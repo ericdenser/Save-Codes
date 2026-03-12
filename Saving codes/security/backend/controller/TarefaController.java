@@ -1,7 +1,7 @@
-package com.example.backend.controller;
+package com.example.resource_server.controller;
 
-import com.example.backend.model.Tarefa;
-import com.example.backend.repository.TarefaRepository;
+import com.example.resource_server.model.Tarefa;
+import com.example.resource_server.repository.TarefaRepository;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,4 +34,3 @@ public class TarefaController {
         return repository.findAll();
     }
 } 
-
