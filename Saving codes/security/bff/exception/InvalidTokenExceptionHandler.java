@@ -1,4 +1,4 @@
-package com.example.bff.exception;
+package com.example.demo.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
@@ -11,7 +11,7 @@ import org.springframework.security.oauth2.client.ClientAuthorizationException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
-import com.example.bff.controller.BffController;
+import com.example.demo.controller.BffController;
 
 import java.util.Map;
 
@@ -26,7 +26,7 @@ public class InvalidTokenExceptionHandler {
         
         // Se o erro for "invalid_grant", o Refresh Token morreu no Keycloak.
         if ("invalid_grant".equals(ex.getError().getErrorCode())) {
-            logger.info("🚨 [SECURITY] Refresh Token rejeitado pelo Keycloak. Limpando a sessão do Redis...");
+            logger.warn("Refresh Token rejeitado pelo Keycloak. Limpando a sessão do Redis...");
             
             // Mata a sessão no Redis
             HttpSession session = request.getSession(false);
@@ -39,6 +39,7 @@ public class InvalidTokenExceptionHandler {
                                  .body(Map.of("erro", "Sessão expirada no servidor de autenticação. Faça login novamente."));
         }
         
+        logger.warn("InvalidTokenException -> erro bizarro: " + ex.getMessage());
         // Se for outro erro bizarro, mantemos o erro 500 para investigarmos
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                              .body(Map.of("erro", "Erro interno de Autenticação: " + ex.getMessage()));
