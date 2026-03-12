@@ -1,20 +1,23 @@
-package com.example.bff.controller;
+package com.example.demo.controller;
 
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.annotation.RegisteredOAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
-import com.example.bff.service.UserService;
+import com.example.demo.service.UserService;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,12 +31,10 @@ public class BffController {
 
     private final RestClient restClient;
     private final UserService userService;
-    private final OAuth2AuthorizedClientService clientService;
 
-    public BffController(RestClient restClient, UserService userService, OAuth2AuthorizedClientService clientService) {
+    public BffController(RestClient restClient, UserService userService) {
         this.restClient = restClient;
         this.userService = userService;
-        this.clientService = clientService;
     }
 
     @GetMapping("/home")
@@ -47,47 +48,55 @@ public class BffController {
                                     @RegisteredOAuth2AuthorizedClient("keycloak") OAuth2AuthorizedClient client) {
         return Map.of(
             "id_token_que_voce_usou", principal.getIdToken().getTokenValue(),
-            "access_token_correto", client.getAccessToken().getTokenValue()
+            "access_token_correto", client.getAccessToken().getTokenValue(),
+            "refresh_token", client.getRefreshToken().getTokenValue()
         );
     }
 
     @GetMapping("/me")
-    public ResponseEntity<Map<String, Object>> getMe(@AuthenticationPrincipal OidcUser principal, OAuth2AuthenticationToken authToken)  {
+    public ResponseEntity<Map<String, Object>> getMe(
+            @AuthenticationPrincipal OidcUser principal,
+            OAuth2AuthenticationToken authToken,
+            HttpServletRequest request,
+            HttpServletResponse response) { 
+
+
         if (principal == null || authToken == null) {
             return ResponseEntity.ok(Map.of("authenticated", false));
         } 
 
-        OAuth2AuthorizedClient client = clientService.loadAuthorizedClient(
-                authToken.getAuthorizedClientRegistrationId(),
-                authToken.getName()
-        );
+        Map<String, Object> userInfo = userService.getAuthenticatedUserInfo(authToken, principal, request, response);
 
-        List<String> rolesDoUsuario = userService.getUserRoles(client);
-
-
-        logger.info("/Me triggered, info: Name: {} Username: {} Roles: {}", principal.getFullName(), principal.getPreferredUsername(), rolesDoUsuario);
+        // 3. Se o service retornou nulo, a gaveta sumiu. Força ciclo SSO!
+        if (userInfo == null) {
+            logger.warn("Tokens perdidos permanentemente no Redis");
+            return ResponseEntity.ok(Map.of("authenticated", false));
+        }
         
-        // Tem gente logada, devolvemos os dados básicos dele.
-        return ResponseEntity.ok(Map.of(
-            "authenticated", true,
-            "nome", principal.getFullName(),
-            "username", principal.getPreferredUsername(),
-            "roles", rolesDoUsuario
-        ));
+        return ResponseEntity.ok(userInfo);
+    }
+
+    @GetMapping("/check-role")
+    public ResponseEntity<Map<String, Boolean>> checkRole(
+            @RequestParam List<String> roles,
+            OAuth2AuthenticationToken authToken,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.info("USUARIO ACESSOU A ROTA CHECK-ROLE");
+        if (authToken == null) {
+            return ResponseEntity.ok(Map.of("hasRole", false));
+        }
+
+        boolean hasRole = userService.checkUserHasRole(roles, authToken, request, response);
+        logger.info("RETORNO -> HasRole = " + hasRole);
+        return ResponseEntity.ok(Map.of("hasRole", hasRole));
     }
 
     @GetMapping("/backend")
-    public String testeBackend(
-            // Essa anotação faz o Spring ir no Redis e pegar os tokens do usuário atual
-            @RegisteredOAuth2AuthorizedClient("keycloak") OAuth2AuthorizedClient clienteAutorizado
-    ) {
-        // Pegamos o Access Token
-        String tokenJwt = clienteAutorizado.getAccessToken().getTokenValue();
+    public String testeBackend() {
 
-        // Fazemos a requisição para a porta 8082 repassando o token
         return restClient.get()
                 .uri("http://localhost:8082/teste")
-                .header("Authorization", "Bearer " + tokenJwt)
                 .retrieve()
                 .body(String.class);
     }
@@ -100,28 +109,19 @@ public class BffController {
 
 
     @GetMapping("/buscar-tarefas")
-    public String buscarTarefasUser(
-            @RegisteredOAuth2AuthorizedClient("keycloak") OAuth2AuthorizedClient clienteAutorizado
-    ) {
-        // Pegamos o Access Token
-        String tokenJwt = clienteAutorizado.getAccessToken().getTokenValue();
-
-        // Fazemos a requisição para a porta 8082 repassando o token
+    public String buscarTarefasUser() {
+      
         return restClient.get()
                 .uri("http://localhost:8082/minhas-tarefas")
-                .header("Authorization", "Bearer " + tokenJwt)
                 .retrieve()
                 .body(String.class);
     }
 
    @GetMapping("/buscar-tarefas-admin")
-    public String testarAdmin(@RegisteredOAuth2AuthorizedClient("keycloak") OAuth2AuthorizedClient client) {
-        String tokenJwt = client.getAccessToken().getTokenValue();
-        
+    public String testarAdmin() {
         try {
             return restClient.get()
                     .uri("http://localhost:8082/admin/todas-tarefas")
-                    .header("Authorization", "Bearer " + tokenJwt)
                     .retrieve()
                     .body(String.class);
                     
